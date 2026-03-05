@@ -10,3 +10,17 @@ def calculate_inital_mass(delta_v, isp , final_mass):
 
     Returns:
     initial_mass (kg) """
+    #$m_0 = m_f e^{\frac{\Delta v}{I_{sp} \cdot g_0}}$
+    g0 = 9.81 # gravity- m/s_square
+    inital_mass = (final_mass* (math.exp(delta_v/(isp*g0))))
+    return inital_mass
+
+# for how finding delta v based on fuel mass
+
+def calculate_delta_v(initial_mass , final_mass, isp):
+    """
+        Calculates the maximum Delta-v a rocket stage can achieve.
+        """
+    g0 = 9.81
+    delta_v = (isp * g0 * math.log(final_mass/initial_mass))
+    return delta_v
