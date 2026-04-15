@@ -130,8 +130,22 @@ class Dashboard(QMainWindow):
 
         central_widget.setLayout(layout)
 
+        main_layout.addWidget(panel)
 
+        # Calculate Button and Results
+        self.calc_button = QPushButton("INITIATE CALCULATION")
+        main_layout.addWidget(self.calc_button)
 
+        self.result_label = QLabel("SYSTEM STANDBY. AWAITING INPUT.")
+        self.result_label.setObjectName("ResultLabel")
+        self.result_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(self.result_label)
+
+        main_layout.addStretch()
+
+        #  SIGNALS & SLOTS (The logic bridge)
+
+        self.calc_button.clicked.connect(self.calculate_mission)
 
 def run_app():
     # creating app
