@@ -16,12 +16,19 @@ class Dashboard(QMainWindow):
         self.setCentralWidget(central_widget)
 
         #Vertical Layout
-        layout = QVBoxLayout
+        layout = QVBoxLayout()
 
         #UI Elements
         self.leo_label = QLabel("Starting LEO Altitude (km):")
         self.leo_input = QLineEdit("300") # default text
         self.calc_button = QPushButton("Calculate Transfer")
+
+        #Adding widgets to layout
+        layout.addWidget(self.leo_label)
+        layout.addWidget(self.leo_input)
+        layout.addWidget(self.calc_button)
+
+        central_widget.setLayout(layout)
 
 
 
