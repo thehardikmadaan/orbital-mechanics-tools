@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QSlider, QComboBox)
 from PySide6.QtCore import Qt, QTimer
 
-from core.astrodynamics import hohmann_transfer
+from core.astrodynamics import hohmann_transfer, bi_elliptic_transfer
 from core.rocket_math import calculate_initial_mass
 
 from visualization.plot_orbit import OrbitPlotter
@@ -17,7 +17,7 @@ class OrbitalDashboard(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Orbital Transfer System")
-        self.setGeometry(100, 100, 600, 500)
+        self.setGeometry(100, 100, 900, 900)
 
         # STYLING
         self.setStyleSheet("""
@@ -172,7 +172,16 @@ class OrbitalDashboard(QMainWindow):
                     }
                 """)
         panel_layout.addWidget(self.speed_slider, 4, 1)
+        # 6. Bi-Elliptic Deep Space Radius (Starts Hidden)
+        self.label_rb = QLabel("Deep Space Radius (km):")
+        self.input_rb = QLineEdit("100000")  # Default massive radius
 
+        panel_layout.addWidget(self.label_rb, 5, 0)
+        panel_layout.addWidget(self.input_rb, 5, 1)
+
+        # Hide them by default since "Hohmann" is the starting selection
+        self.label_rb.hide()
+        self.input_rb.hide()
         # SIGNALS & SLOTS
         self.calc_button.clicked.connect(self.calculate_mission)
         self.maneuver_box.currentTextChanged.connect(self.update_header)
@@ -202,14 +211,30 @@ class OrbitalDashboard(QMainWindow):
             if maneuver_type == "Hohmann Transfer":
                 delta_v = hohmann_transfer(mu, r1, r2)
 
+
             elif maneuver_type == "Bi-Elliptic Transfer":
-                # NOT WRITTEN YET
-                delta_v = 0.0
+
+                # Get the rb value from the UI
+
+                rb_km = float(self.input_rb.text())
+
+                rb = (rb_km * 1000) + r_earth
+
+                # SAFETY CHECK: rb must be larger than r1 and r2
+
+                if rb <= r1 or rb <= r2:
+                    self.result_label.setStyleSheet("color: #ff6b35;")
+
+                    self.result_label.setText("ERROR: DEEP SPACE RADIUS MUST BE LARGER THAN ORBITS.")
+
+                    return  # Stop the function right here!
+
+                delta_v = bi_elliptic_transfer(mu, r1, r2, rb)
+
 
             elif maneuver_type == "Phasing Orbit":
-                # NOT WRITTEN YET
-                delta_v = 0.0
 
+                delta_v = 0.0  # We will build this later
             wet_mass = calculate_initial_mass(delta_v, isp, final_mass)
             propellant = wet_mass - final_mass
 
@@ -224,8 +249,16 @@ class OrbitalDashboard(QMainWindow):
             self.result_label.setText("ERROR: INVALID INPUT DETECTED. NUMBERS ONLY.")
 
     def update_header(self, text):
-        """Updates the main title based on the dropdown selection."""
+        """Updates the main title and dynamic inputs based on the dropdown selection."""
         self.header.setText(text.upper())
+
+        # Toggle the Deep Space Radius input
+        if text == "Bi-Elliptic Transfer":
+            self.label_rb.show()
+            self.input_rb.show()
+        else:
+            self.label_rb.hide()
+            self.input_rb.hide()
 
 def run_app():
     app = QApplication(sys.argv)
