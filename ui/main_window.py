@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QLineEdit, QPushButton, QFrame, QGridLayout)
 from PySide6.QtCore import Qt
 
-# Import our math engine
 from core.astrodynamics import hohmann_transfer
 from core.rocket_math import calculate_initial_mass
 
@@ -18,7 +17,7 @@ class OrbitalDashboard(QMainWindow):
         self.setWindowTitle("Orbital Transfer System")
         self.setGeometry(100, 100, 600, 500)
 
-        # --- QSS STYLING (Bringing your web CSS into PySide6) ---
+        # STYLING
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #020408;
@@ -83,7 +82,7 @@ class OrbitalDashboard(QMainWindow):
             }
         """)
 
-        # --- LAYOUT SETUP ---
+        #  LAYOUT
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
@@ -98,7 +97,7 @@ class OrbitalDashboard(QMainWindow):
         main_layout.addWidget(eyebrow)
         main_layout.addWidget(header)
 
-        # 2. Input Panel (The dark surface frame)
+        # 2. Input Panel
         panel = QFrame()
         panel.setObjectName("Panel")
         panel_layout = QGridLayout(panel)
@@ -131,33 +130,32 @@ class OrbitalDashboard(QMainWindow):
 
         main_layout.addStretch()
 
-        # --- SIGNALS & SLOTS (The logic bridge) ---
-        # When the button is clicked (Signal), run the calculate_mission function (Slot)
+        # SIGNALS & SLOTS
         self.calc_button.clicked.connect(self.calculate_mission)
 
     def calculate_mission(self):
         """This function runs when the button is clicked."""
         try:
-            # 1. Grab the text from the UI boxes and turn them into numbers (floats)
+            # take input and  turn them into numbers (floats)
             alt1_km = float(self.input_r1.text())
             alt2_km = float(self.input_r2.text())
             final_mass = float(self.input_mass.text())
 
-            # 2. Constants
+            # Constants
             mu = 3.986e14
             r_earth = 6371000
             isp = 310
 
-            # 3. Math (Converting km to meters and adding Earth radius)
+            # Math (Converting km to meters and adding Earth radius)
             r1 = (alt1_km * 1000) + r_earth
             r2 = (alt2_km * 1000) + r_earth
 
-            # 4. Call our core engine
+            # Call our core engine
             delta_v = hohmann_transfer(mu, r1, r2)
             wet_mass = calculate_initial_mass(delta_v, isp, final_mass)
             propellant = wet_mass - final_mass
 
-            # 5. Update the UI with the result
+            # Update the UI
             result_text = f"SUCCESS: Δv Required: {delta_v:.2f} m/s | Propellant: {propellant:.2f} kg"
             self.result_label.setStyleSheet("color: #00d4ff;")  # Turn text cyan on success
             self.result_label.setText(result_text)
