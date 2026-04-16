@@ -77,38 +77,37 @@ def bi_elliptic_transfer(mu, r1, r2, rb):
     return total_delta_v
 
 
-ef
-phasing_maneuver(mu, r1, phase_angle_deg):
-"""
-Calculates the Delta-v for a coplanar phasing maneuver.
-Assumes a single phasing orbit to catch up to a target in the same parking orbit (r1).
+def phasing_maneuver(mu, r1, phase_angle_deg):
+    """
+    Calculates the Delta-v for a coplanar phasing maneuver.
+    Assumes a single phasing orbit to catch up to a target in the same parking orbit (r1).
 
-Inputs:
-mu: Standard gravitational parameter (m^3/s^2)
-r1: Radius of the circular parking orbit (meters)
-phase_angle_deg: How far ahead the target is (degrees)
-"""
-# 1. Original circular period (time it takes to do 1 orbit)
-T_initial = 2 * math.pi * math.sqrt((r1 ** 3) / mu)
+    Inputs:
+    mu: Standard gravitational parameter (m^3/s^2)
+    r1: Radius of the circular parking orbit (meters)
+    phase_angle_deg: How far ahead the target is (degrees)
+    """
+    # 1. Original circular period (time it takes to do 1 orbit)
+    T_initial = 2 * math.pi * math.sqrt((r1 ** 3) / mu)
 
-# 2. Time required to catch up the phase angle
-time_shift = (phase_angle_deg / 360.0) * T_initial
+    # 2. Time required to catch up the phase angle
+    time_shift = (phase_angle_deg / 360.0) * T_initial
 
-# 3. New orbital period required to intercept the target
-# If target is ahead (+ angle), we must do a FASTER (smaller) orbit: T - time_shift
-T_phasing = T_initial - time_shift
+    # 3. New orbital period required to intercept the target
+    # If target is ahead (+ angle), we must do a FASTER (smaller) orbit: T - time_shift
+    T_phasing = T_initial - time_shift
 
-# 4. Calculate the Semi-major axis of this new phasing ellipse
-a_phasing = (mu * (T_phasing / (2 * math.pi)) ** 2) ** (1 / 3)
+    # 4. Calculate the Semi-major axis of this new phasing ellipse
+    a_phasing = (mu * (T_phasing / (2 * math.pi)) ** 2) ** (1 / 3)
 
-# 5. Velocity calculations
-v_circ = math.sqrt(mu / r1)
-# Velocity at perigee/apogee of phasing orbit (where it intersects r1)
-v_phase = math.sqrt(mu * ((2 / r1) - (1 / a_phasing)))
+    # 5. Velocity calculations
+    v_circ = math.sqrt(mu / r1)
+    # Velocity at perigee/apogee of phasing orbit (where it intersects r1)
+    v_phase = math.sqrt(mu * ((2 / r1) - (1 / a_phasing)))
 
-# Burn 1: Enter phasing orbit
-# Burn 2: Exit phasing orbit (re-circularize)
-delta_v_burn = abs(v_phase - v_circ)
-total_delta_v = 2 * delta_v_burn
+    # Burn 1: Enter phasing orbit
+    # Burn 2: Exit phasing orbit (re-circularize)
+    delta_v_burn = abs(v_phase - v_circ)
+    total_delta_v = 2 * delta_v_burn
 
-return total_delta_v
+    return total_delta_v
