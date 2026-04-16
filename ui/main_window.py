@@ -3,8 +3,9 @@ import sys
 import math
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QFrame, QGridLayout)
-from PySide6.QtCore import Qt
+                               QLineEdit, QPushButton, QFrame, QGridLayout,
+                               QSlider, QComboBox)
+from PySide6.QtCore import Qt, QTimer
 
 from core.astrodynamics import hohmann_transfer
 from core.rocket_math import calculate_initial_mass
@@ -93,10 +94,10 @@ class OrbitalDashboard(QMainWindow):
         # 1. Headers
         eyebrow = QLabel("Mission Control // Trajectory Planning")
         eyebrow.setObjectName("Eyebrow")
-        header = QLabel("HOHMANN TRANSFER")
-        header.setObjectName("Header")
+        self.header = QLabel("HOHMANN TRANSFER")
+        self.header.setObjectName("Header")
         main_layout.addWidget(eyebrow)
-        main_layout.addWidget(header)
+        main_layout.addWidget(self.header)
 
         # 2. Input Panel
         panel = QFrame()
@@ -135,8 +136,46 @@ class OrbitalDashboard(QMainWindow):
 
         main_layout.addStretch()
 
+        # 4. Maneuver Type Dropdown
+        panel_layout.addWidget(QLabel("Maneuver Profile:"), 3, 0)
+        self.maneuver_box = QComboBox()
+        self.maneuver_box.addItems(["Hohmann Transfer", "Bi-Elliptic Transfer", "Phasing Orbit"])
+        self.maneuver_box.setStyleSheet("""
+                    QComboBox {
+                        background-color: #020408;
+                        color: #00d4ff;
+                        border: 1px solid rgba(0, 212, 255, 0.3);
+                        border-radius: 4px;
+                        padding: 5px;
+                    }
+                """)
+        panel_layout.addWidget(self.maneuver_box, 3, 1)
+
+        # 5. Animation Speed Slider (Ramping)
+        panel_layout.addWidget(QLabel("Simulation Speed:"), 4, 0)
+        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider.setMinimum(1)
+        self.speed_slider.setMaximum(100)
+        self.speed_slider.setValue(50)  # Default speed in the middle
+        self.speed_slider.setStyleSheet("""
+                    QSlider::groove:horizontal {
+                        border: 1px solid #5a6a80;
+                        height: 8px;
+                        background: #020408;
+                        border-radius: 4px;
+                    }
+                    QSlider::handle:horizontal {
+                        background: #ff6b35;
+                        width: 18px;
+                        margin: -5px 0; 
+                        border-radius: 9px;
+                    }
+                """)
+        panel_layout.addWidget(self.speed_slider, 4, 1)
+
         # SIGNALS & SLOTS
         self.calc_button.clicked.connect(self.calculate_mission)
+        self.maneuver_box.currentTextChanged.connect(self.update_header)
 
     def calculate_mission(self):
         """This function runs when the button is clicked."""
@@ -170,6 +209,9 @@ class OrbitalDashboard(QMainWindow):
             self.result_label.setStyleSheet("color: #ff6b35;")  # Turn text orange/red on error
             self.result_label.setText("ERROR: INVALID INPUT DETECTED. NUMBERS ONLY.")
 
+    def update_header(self, text):
+        """Updates the main title based on the dropdown selection."""
+        self.header.setText(text.upper())
 
 def run_app():
     app = QApplication(sys.argv)
