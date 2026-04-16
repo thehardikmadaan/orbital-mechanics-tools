@@ -3,6 +3,7 @@ import os
 import numpy as np
 import matplotlib.image as mpimg
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from matplotlib.patches import FancyArrowPatch
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -115,10 +116,10 @@ class OrbitPlotter(FigureCanvasQTAgg):
 
             # 4. Thrust/Velocity Vector Arrow (Starts hidden)
             # shrinkA and shrinkB prevent the arrow from detaching from the coordinates
-            self.vector_arrow = self.ax.annotate('', xy=(0, 0), xytext=(0, 0),
-                                                 arrowprops=dict(arrowstyle="->", color='#00d4ff', lw=2, shrinkA=0,
-                                                                 shrinkB=0),
-                                                 zorder=9)
+            # The new code with zorder=20
+            self.vector_arrow = FancyArrowPatch((0, 0), (0, 0), mutation_scale=15,
+                                                color='#00d4ff', zorder=20, arrowstyle='->', lw=2)
+            self.ax.add_patch(self.vector_arrow)
             self.vector_arrow.set_visible(False)
 
         except FileNotFoundError:
@@ -135,20 +136,21 @@ class OrbitPlotter(FigureCanvasQTAgg):
 
         # Handle the Vector Arrow
         if dx != 0 or dy != 0:
-            # Scale factor: forces the arrow to be 6000km long visually so it stands out
             scale = 6000 / np.hypot(dx, dy)
 
-            if vector_type == "Retrograde":
-                self.vector_arrow.arrow_patch.set_color('#ff6b35')  # Orange for braking
-                self.vector_arrow.xy = (x - dx * scale, y - dy * scale)  # Point backward
-            else:
-                self.vector_arrow.arrow_patch.set_color('#00d4ff')  # Cyan for speeding up
-                self.vector_arrow.xy = (x + dx * scale, y + dy * scale)  # Point forward
+            # We add a small horizontal offset (e.g., 500km) to shift the tip right
+            x_offset = 0
 
-            self.vector_arrow.set_position((x, y))  # Lock the base of the arrow to the rocket
+
+            if vector_type == "Retrograde":
+                self.vector_arrow.set_color('#ff6b35')
+                self.vector_arrow.set_positions((x, y), (x - dx * scale + x_offset, y - dy * scale))
+            else:
+                self.vector_arrow.set_color('#00d4ff')
+                self.vector_arrow.set_positions((x, y), (x + dx * scale + x_offset, y + dy * scale))
+
             self.vector_arrow.set_visible(True)
         else:
-            # Hide the arrow when the engine is off (not moving)
             self.vector_arrow.set_visible(False)
 
         self.draw()

@@ -271,7 +271,7 @@ class OrbitalDashboard(QMainWindow):
         x = self.plotter.flight_path_x[self.current_frame]
         y = self.plotter.flight_path_y[self.current_frame]
 
-        # Calculate the flight direction (Tangent Vector)
+        # 1. Calculate the flight direction (Tangent Vector)
         if self.current_frame < len(self.plotter.flight_path_x) - 1:
             next_x = self.plotter.flight_path_x[self.current_frame + 1]
             next_y = self.plotter.flight_path_y[self.current_frame + 1]
@@ -280,15 +280,14 @@ class OrbitalDashboard(QMainWindow):
         else:
             dx, dy = 0, 0
 
-        # Pass the calculated vector to the plotter.
-        # (Later, we can add logic to check if Burn 3 of a Bi-Elliptic is happening and pass "Retrograde" here!)
+        # 2. Pass the calculated vector to the plotter (CRITICAL LINE!)
         self.plotter.update_rocket_position(x, y, dx, dy, "Prograde")
 
         self.current_frame += 1
 
         if self.current_frame >= len(self.plotter.flight_path_x):
             self.animation_timer.stop()
-            # Engine cutoff: send 0, 0 to hide the vector arrow when the mission is done
+            # Engine cutoff: send 0, 0 to hide the vector arrow when done
             self.plotter.update_rocket_position(x, y, 0, 0)
 
     def update_header(self, text):
