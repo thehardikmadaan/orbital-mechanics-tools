@@ -1,5 +1,5 @@
 # visualisation / plot_orbit.py
-
+import os
 import numpy as np
 import matplotlib.image as mpimg
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
@@ -10,7 +10,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 class OrbitPlotter(FigureCanvasQTAgg):
     def __init__(self, parent=None):
         # matplotlib figure
-        self.fig = Figure(figsize=(5,5), dpi=100, facecolor='#080d14')
+        self.fig = Figure(figsize=(8, 5), dpi=100, facecolor='#080d14') # Changed 5 to 8
         self.ax = self.fig.add_subplot(111)
 
         # convert the canvas to pyside6 widget
@@ -26,8 +26,7 @@ class OrbitPlotter(FigureCanvasQTAgg):
         # draw a blank template to start
         self.draw_orbits(300, 35786)
 
-
-    def draw_orbits(self, alt1_km, alt2_km):
+    def draw_orbits(self, alt1_km, alt2_km, maneuver="Hohmann Transfer", rb_km=None):
         """Clears the canvas and redraws the orbits based on user input."""
         self.ax.clear() # clear prev drawing
 
@@ -66,27 +65,48 @@ class OrbitPlotter(FigureCanvasQTAgg):
         self.rocket_marker, = self.ax.plot([], [], 'wo', markersize=8, zorder=5, label="Spacecraft")
 
         self.ax.set_aspect('equal')
-        self.ax.legend(loc='upper right', facecolor='#020408', edgecolor='none', labelcolor='#e8edf5')
-        self.fig.tight_layout()
+        # Hide the raw axis numbers for a cleaner HUD look
+        self.ax.set_xticklabels([])
+        self.ax.set_yticklabels([])
+        # Push the legend outside the plot to the right
+        self.ax.legend(
+            loc='center left',
+            bbox_to_anchor=(1.05, 0.5),  # 1.05 puts it just outside the right edge!
+            facecolor='#020408',
+            edgecolor='none',
+            labelcolor='#e8edf5'
+        )
+
+        # Adjust the margins so the legend doesn't get cut off by the window edge
+        self.fig.subplots_adjust(right=0.75, left=0.05, top=0.95, bottom=0.05)
         self.draw()
 
         # 3. The Spacecraft Marker
         try:
-            # Try to load the custom rocket image
-            rocket_img = mpimg.imread('rocket.png')
+            # Get the absolute path to the project root folder
+            # This assumes your project root is the current working directory
+            current_folder = os.getcwd()
+            image_path = os.path.join(current_folder, 'rocket.png')
 
-            zoom=0.05 #shrinks the image
-            # depending on how big your original PNG file is!
+            # Load the image
+            rocket_img = mpimg.imread(image_path)
+
+            # zoom=0.05 shrinks the image. If you still can't see it after fixing the path,
+            # change this to zoom=0.2 or 0.5!
             self.imagebox = OffsetImage(rocket_img, zoom=0.05)
 
-            # Place the image box at the center (0,0) to start, but keep it hidden
+            # Place the image box
             self.rocket_marker = AnnotationBbox(self.imagebox, (0, 0), frameon=False)
             self.rocket_marker.set_visible(False)
+
+            # Set zorder very high so it always draws ON TOP of the lines
+            self.rocket_marker.set_zorder(10)
+
             self.ax.add_artist(self.rocket_marker)
             self.using_image = True
 
         except FileNotFoundError:
-            # Fallback to the old white dot if 'rocket.png' is missing
+            # THIS WILL PRINT TO YOUR TERMINAL IF IT FAILS!
             self.rocket_marker, = self.ax.plot([], [], 'wo', markersize=8, zorder=5, label="Spacecraft")
             self.using_image = False
 

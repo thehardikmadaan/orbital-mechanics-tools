@@ -4,7 +4,7 @@ import math
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QFrame, QGridLayout,
-                               QSlider, QComboBox)
+                               QSlider, QComboBox, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer
 
 from core.astrodynamics import hohmann_transfer, bi_elliptic_transfer
@@ -86,7 +86,7 @@ class OrbitalDashboard(QMainWindow):
             }
         """)
 
-        #  LAYOUT
+        # LAYOUT SETUP
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
@@ -101,14 +101,13 @@ class OrbitalDashboard(QMainWindow):
         main_layout.addWidget(eyebrow)
         main_layout.addWidget(self.header)
 
-        # 2. Input Panel
+        # 2. Input Panel (Building it top-to-bottom)
         panel = QFrame()
         panel.setObjectName("Panel")
         panel_layout = QGridLayout(panel)
         panel_layout.setContentsMargins(20, 20, 20, 20)
         panel_layout.setSpacing(15)
 
-        # Add input fields to the grid
         panel_layout.addWidget(QLabel("Initial LEO Altitude (km):"), 0, 0)
         self.input_r1 = QLineEdit("300")
         panel_layout.addWidget(self.input_r1, 0, 1)
@@ -121,6 +120,49 @@ class OrbitalDashboard(QMainWindow):
         self.input_mass = QLineEdit("2000")
         panel_layout.addWidget(self.input_mass, 2, 1)
 
+        panel_layout.addWidget(QLabel("Maneuver Profile:"), 3, 0)
+        self.maneuver_box = QComboBox()
+        self.maneuver_box.addItems(["Hohmann Transfer", "Bi-Elliptic Transfer", "Phasing Orbit"])
+        self.maneuver_box.setStyleSheet("""
+            QComboBox {
+                background-color: #020408;
+                color: #00d4ff;
+                border: 1px solid rgba(0, 212, 255, 0.3);
+                border-radius: 4px;
+                padding: 5px;
+            }
+        """)
+        panel_layout.addWidget(self.maneuver_box, 3, 1)
+
+        panel_layout.addWidget(QLabel("Simulation Speed:"), 4, 0)
+        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider.setMinimum(1)
+        self.speed_slider.setMaximum(100)
+        self.speed_slider.setValue(50)
+        self.speed_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #5a6a80;
+                height: 8px;
+                background: #020408;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: #ff6b35;
+                width: 18px;
+                margin: -5px 0; 
+                border-radius: 9px;
+            }
+        """)
+        panel_layout.addWidget(self.speed_slider, 4, 1)
+
+        self.label_rb = QLabel("Deep Space Radius (km):")
+        self.input_rb = QLineEdit("100000")
+        panel_layout.addWidget(self.label_rb, 5, 0)
+        panel_layout.addWidget(self.input_rb, 5, 1)
+        self.label_rb.hide()
+        self.input_rb.hide()
+
+        # Add the completed panel to the main layout ONCE
         main_layout.addWidget(panel)
 
         # 3. Calculate Button & Results
@@ -132,63 +174,19 @@ class OrbitalDashboard(QMainWindow):
         self.result_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(self.result_label)
 
-        # Add the Matplotlib graph to the UI
+        # 4. Matplotlib Graph (With expanding policy)
         self.plotter = OrbitPlotter(self)
+        self.plotter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         main_layout.addWidget(self.plotter)
 
+        # Push everything up from the bottom
         main_layout.addStretch()
 
-        # 4. Maneuver Type Dropdown
-        panel_layout.addWidget(QLabel("Maneuver Profile:"), 3, 0)
-        self.maneuver_box = QComboBox()
-        self.maneuver_box.addItems(["Hohmann Transfer", "Bi-Elliptic Transfer", "Phasing Orbit"])
-        self.maneuver_box.setStyleSheet("""
-                    QComboBox {
-                        background-color: #020408;
-                        color: #00d4ff;
-                        border: 1px solid rgba(0, 212, 255, 0.3);
-                        border-radius: 4px;
-                        padding: 5px;
-                    }
-                """)
-        panel_layout.addWidget(self.maneuver_box, 3, 1)
-
-        # 5. Animation Speed Slider (Ramping)
-        panel_layout.addWidget(QLabel("Simulation Speed:"), 4, 0)
-        self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setMinimum(1)
-        self.speed_slider.setMaximum(100)
-        self.speed_slider.setValue(50)  # Default speed in the middle
-        self.speed_slider.setStyleSheet("""
-                    QSlider::groove:horizontal {
-                        border: 1px solid #5a6a80;
-                        height: 8px;
-                        background: #020408;
-                        border-radius: 4px;
-                    }
-                    QSlider::handle:horizontal {
-                        background: #ff6b35;
-                        width: 18px;
-                        margin: -5px 0; 
-                        border-radius: 9px;
-                    }
-                """)
-        panel_layout.addWidget(self.speed_slider, 4, 1)
-        # 6. Bi-Elliptic Deep Space Radius (Starts Hidden)
-        self.label_rb = QLabel("Deep Space Radius (km):")
-        self.input_rb = QLineEdit("100000")  # Default massive radius
-
-        panel_layout.addWidget(self.label_rb, 5, 0)
-        panel_layout.addWidget(self.input_rb, 5, 1)
-
-        # Hide them by default since "Hohmann" is the starting selection
-        self.label_rb.hide()
-        self.input_rb.hide()
-        # SIGNALS & SLOTS
+        # 5. SIGNALS & SLOTS
         self.calc_button.clicked.connect(self.calculate_mission)
         self.maneuver_box.currentTextChanged.connect(self.update_header)
 
-        # --- ANIMATION ENGINE ---
+        # 6. ANIMATION ENGINE
         self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self.animation_step)
         self.current_frame = 0
