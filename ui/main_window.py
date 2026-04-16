@@ -108,15 +108,15 @@ class OrbitalDashboard(QMainWindow):
         panel_layout.setContentsMargins(20, 20, 20, 20)
         panel_layout.setSpacing(15)
 
-        panel_layout.addWidget(QLabel("Initial LEO Altitude (km):"), 0, 0)
+        panel_layout.addWidget(QLabel("Parking Orbit (h_park, km):"), 0, 0)
         self.input_r1 = QLineEdit("300")
         panel_layout.addWidget(self.input_r1, 0, 1)
 
-        panel_layout.addWidget(QLabel("Target GEO Altitude (km):"), 1, 0)
+        panel_layout.addWidget(QLabel("Target Orbit (h_tgt, km):"), 1, 0)
         self.input_r2 = QLineEdit("35786")
         panel_layout.addWidget(self.input_r2, 1, 1)
 
-        panel_layout.addWidget(QLabel("Payload Mass (kg):"), 2, 0)
+        panel_layout.addWidget(QLabel("Dry Mass (m_dry, kg):"), 2, 0)
         self.input_mass = QLineEdit("2000")
         panel_layout.addWidget(self.input_mass, 2, 1)
 
@@ -155,8 +155,8 @@ class OrbitalDashboard(QMainWindow):
         """)
         panel_layout.addWidget(self.speed_slider, 4, 1)
 
-        self.label_rb = QLabel("Deep Space Radius (km):")
-        self.input_rb = QLineEdit("100000")
+        self.label_rb = QLabel("Apoapsis Radius (r_a, km):")
+        self.input_rb = QLineEdit("100000"
         panel_layout.addWidget(self.label_rb, 5, 0)
         panel_layout.addWidget(self.input_rb, 5, 1)
         self.label_rb.hide()
