@@ -41,3 +41,37 @@ def hohmann_transfer(mu,r1,r2):
     #6/
     total_delta_v = delta_v1 + delta_v2
     return total_delta_v
+
+
+def bi_elliptic_transfer(mu, r1, r2, rb):
+    """
+    Calculates the total Delta-v required for a Bi-Elliptic transfer.
+
+    Inputs:
+    mu: Standard gravitational parameter (m^3/s^2)
+    r1: Initial circular orbit radius (meters)
+    r2: Final circular orbit radius (meters)
+    rb: Intermediate deep-space apogee radius (meters) - MUST be larger than r1 and r2!
+
+    Returns:
+    total_delta_v (m/s)
+    """
+    # Burn 1: Circular r1 to Ellipse 1 (perigee r1, apogee rb)
+    a1 = (r1 + rb) / 2
+    v_c1 = math.sqrt(mu / r1)
+    v_p1 = math.sqrt(mu * ((2 / r1) - (1 / a1)))
+    delta_v1 = abs(v_p1 - v_c1)
+
+    # Burn 2: Ellipse 1 to Ellipse 2 (Out in deep space at rb)
+    a2 = (r2 + rb) / 2
+    v_a1 = math.sqrt(mu * ((2 / rb) - (1 / a1)))
+    v_a2 = math.sqrt(mu * ((2 / rb) - (1 / a2)))
+    delta_v2 = abs(v_a2 - v_a1)
+
+    # Burn 3: Ellipse 2 to Circular r2 (Arriving at target r2)
+    v_p2 = math.sqrt(mu * ((2 / r2) - (1 / a2)))
+    v_c2 = math.sqrt(mu / r2)
+    delta_v3 = abs(v_c2 - v_p2)
+
+    total_delta_v = delta_v1 + delta_v2 + delta_v3
+    return total_delta_v
