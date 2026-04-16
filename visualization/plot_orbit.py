@@ -1,6 +1,7 @@
 # visualisation / plot_orbit.py
 
 import numpy as np
+
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
