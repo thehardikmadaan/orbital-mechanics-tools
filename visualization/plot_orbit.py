@@ -70,10 +70,11 @@ class OrbitPlotter(FigureCanvasQTAgg):
         try:
             # __file__ always points to this script's directory — reliable regardless of cwd
             current_folder = os.path.dirname(__file__)
-            image_path = os.path.join(current_folder, 'rocket.TIF')
+            image_path = os.path.join(current_folder, 'rocket.png')
 
             rocket_img = mpimg.imread(image_path)
-            self.imagebox = OffsetImage(rocket_img, zoom=0.05)
+            rocket_img = np.rot90(rocket_img, k=2)  # Rotate 180°
+            self.imagebox = OffsetImage(rocket_img, zoom=0.1)
 
             self.rocket_marker = AnnotationBbox(self.imagebox, (0, 0), frameon=False)
             self.rocket_marker.set_visible(False)

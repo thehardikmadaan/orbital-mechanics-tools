@@ -40,7 +40,7 @@ class OrbitalDashboard(QMainWindow):
             }
             QLabel#Eyebrow {
                 color: #7b61ff;
-                font-family: 'DM Mono', monospace;
+                font-family: 'DM Mono', Courier New;
                 font-size: 12px;
                 text-transform: uppercase;
                 letter-spacing: 2px;
@@ -56,7 +56,7 @@ class OrbitalDashboard(QMainWindow):
                 border: 1px solid rgba(0, 212, 255, 0.3);
                 border-radius: 4px;
                 padding: 10px;
-                font-family: 'DM Mono', monospace;
+                font-family: 'DM Mono', Courier New;
                 font-size: 14px;
             }
             QLineEdit:focus {
@@ -80,7 +80,7 @@ class OrbitalDashboard(QMainWindow):
             }
             QLabel#ResultLabel {
                 color: #ff6b35;
-                font-family: 'DM Mono', monospace;
+                font-family: 'DM Mono', Courier New;
                 font-size: 16px;
                 margin-top: 20px;
             }
