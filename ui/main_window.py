@@ -11,13 +11,15 @@ from core.astrodynamics import hohmann_transfer, bi_elliptic_transfer
 from core.rocket_math import calculate_initial_mass
 
 from visualization.plot_orbit import OrbitPlotter
-
+import matplotlib.image as mpimg
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 class OrbitalDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Orbital Transfer System")
-        self.setGeometry(100, 100, 900, 900)
+        self.setMinimumSize(1000, 750)
+        self.setGeometry(100, 100, 1000, 750)
 
         # STYLING
         self.setStyleSheet("""
@@ -186,6 +188,11 @@ class OrbitalDashboard(QMainWindow):
         self.calc_button.clicked.connect(self.calculate_mission)
         self.maneuver_box.currentTextChanged.connect(self.update_header)
 
+        # --- ANIMATION ENGINE ---
+        self.animation_timer = QTimer(self)
+        self.animation_timer.timeout.connect(self.animation_step)
+        self.current_frame = 0
+
     def calculate_mission(self):
         """This function runs when the button is clicked."""
         try:
@@ -236,7 +243,17 @@ class OrbitalDashboard(QMainWindow):
                 delta_v = 0.0  # We will build this later
             wet_mass = calculate_initial_mass(delta_v, isp, final_mass)
             propellant = wet_mass - final_mass
+            # 5. Update the Graph
+            if maneuver_type == "Bi-Elliptic Transfer":
+                self.plotter.draw_orbits(alt1_km, alt2_km, maneuver=maneuver_type, rb_km=rb_km)
+            else:
+                self.plotter.draw_orbits(alt1_km, alt2_km, maneuver=maneuver_type)
 
+            # 6. Start the Animation
+            self.current_frame = 0
+            # Speed slider controls the delay (1 to 100). Higher slider = lower delay = faster!
+            delay_ms = int(1000 / self.speed_slider.value())
+            self.animation_timer.start(delay_ms)
             # Update the UI
             result_text = f"SUCCESS: Δv Required: {delta_v:.2f} m/s | Propellant: {propellant:.2f} kg"
             self.result_label.setStyleSheet("color: #00d4ff;")  # Turn text cyan on success
@@ -246,6 +263,27 @@ class OrbitalDashboard(QMainWindow):
             # HMI Safety Feature: If the user types a letter instead of a number, catch the crash!
             self.result_label.setStyleSheet("color: #ff6b35;")  # Turn text orange/red on error
             self.result_label.setText("ERROR: INVALID INPUT DETECTED. NUMBERS ONLY.")
+
+    def animation_step(self):
+        """Fires every few milliseconds to move the rocket one step forward."""
+        # Check if we have a path to fly on
+        if len(self.plotter.flight_path_x) == 0:
+            self.animation_timer.stop()
+            return
+
+        # Get the current coordinates
+        x = self.plotter.flight_path_x[self.current_frame]
+        y = self.plotter.flight_path_y[self.current_frame]
+
+        # Update the graph
+        self.plotter.update_rocket_position(x, y)
+
+        # Move to the next frame
+        self.current_frame += 1
+
+        # If we reach the end of the path, stop the timer
+        if self.current_frame >= len(self.plotter.flight_path_x):
+            self.animation_timer.stop()
 
     def update_header(self, text):
         """Updates the main title and dynamic inputs based on the dropdown selection."""
