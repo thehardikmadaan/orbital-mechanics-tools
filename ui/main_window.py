@@ -264,24 +264,32 @@ class OrbitalDashboard(QMainWindow):
 
     def animation_step(self):
         """Fires every few milliseconds to move the rocket one step forward."""
-        # Check if we have a path to fly on
         if len(self.plotter.flight_path_x) == 0:
             self.animation_timer.stop()
             return
 
-        # Get the current coordinates
         x = self.plotter.flight_path_x[self.current_frame]
         y = self.plotter.flight_path_y[self.current_frame]
 
-        # Update the graph
-        self.plotter.update_rocket_position(x, y)
+        # Calculate the flight direction (Tangent Vector)
+        if self.current_frame < len(self.plotter.flight_path_x) - 1:
+            next_x = self.plotter.flight_path_x[self.current_frame + 1]
+            next_y = self.plotter.flight_path_y[self.current_frame + 1]
+            dx = next_x - x
+            dy = next_y - y
+        else:
+            dx, dy = 0, 0
 
-        # Move to the next frame
+        # Pass the calculated vector to the plotter.
+        # (Later, we can add logic to check if Burn 3 of a Bi-Elliptic is happening and pass "Retrograde" here!)
+        self.plotter.update_rocket_position(x, y, dx, dy, "Prograde")
+
         self.current_frame += 1
 
-        # If we reach the end of the path, stop the timer
         if self.current_frame >= len(self.plotter.flight_path_x):
             self.animation_timer.stop()
+            # Engine cutoff: send 0, 0 to hide the vector arrow when the mission is done
+            self.plotter.update_rocket_position(x, y, 0, 0)
 
     def update_header(self, text):
         """Updates the main title and dynamic inputs based on the dropdown selection."""

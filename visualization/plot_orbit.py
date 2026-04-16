@@ -125,11 +125,30 @@ class OrbitPlotter(FigureCanvasQTAgg):
             self.rocket_marker, = self.ax.plot([], [], 'wo', markersize=8, zorder=5, label="Spacecraft")
             self.using_image = False
 
-    def update_rocket_position(self, x, y):
-        """Moves the rocket image (or fallback dot) and redraws the canvas."""
+    def update_rocket_position(self, x, y, dx=0, dy=0, vector_type="Prograde"):
+        """Moves the spacecraft and its directional thrust vector."""
         if self.using_image:
             self.rocket_marker.xybox = (x, y)
             self.rocket_marker.set_visible(True)
         else:
             self.rocket_marker.set_data([x], [y])
+
+        # Handle the Vector Arrow
+        if dx != 0 or dy != 0:
+            # Scale factor: forces the arrow to be 6000km long visually so it stands out
+            scale = 6000 / np.hypot(dx, dy)
+
+            if vector_type == "Retrograde":
+                self.vector_arrow.arrow_patch.set_color('#ff6b35')  # Orange for braking
+                self.vector_arrow.xy = (x - dx * scale, y - dy * scale)  # Point backward
+            else:
+                self.vector_arrow.arrow_patch.set_color('#00d4ff')  # Cyan for speeding up
+                self.vector_arrow.xy = (x + dx * scale, y + dy * scale)  # Point forward
+
+            self.vector_arrow.set_position((x, y))  # Lock the base of the arrow to the rocket
+            self.vector_arrow.set_visible(True)
+        else:
+            # Hide the arrow when the engine is off (not moving)
+            self.vector_arrow.set_visible(False)
+
         self.draw()
