@@ -195,7 +195,21 @@ class OrbitalDashboard(QMainWindow):
             r2 = (alt2_km * 1000) + r_earth
 
             # Call our core engine
-            delta_v = hohmann_transfer(mu, r1, r2)
+            # Find out which maneuver the user selected
+            maneuver_type = self.maneuver_box.currentText()
+
+            # 4. Route to the correct core engine math
+            if maneuver_type == "Hohmann Transfer":
+                delta_v = hohmann_transfer(mu, r1, r2)
+
+            elif maneuver_type == "Bi-Elliptic Transfer":
+                # NOT WRITTEN YET
+                delta_v = 0.0
+
+            elif maneuver_type == "Phasing Orbit":
+                # NOT WRITTEN YET
+                delta_v = 0.0
+
             wet_mass = calculate_initial_mass(delta_v, isp, final_mass)
             propellant = wet_mass - final_mass
 
