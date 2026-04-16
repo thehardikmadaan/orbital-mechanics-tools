@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from core.astrodynamics import hohmann_transfer
 from core.rocket_math import calculate_initial_mass
 
+from visualization.plot_orbit import OrbitPlotter
 
 class OrbitalDashboard(QMainWindow):
     def __init__(self):
@@ -127,6 +128,10 @@ class OrbitalDashboard(QMainWindow):
         self.result_label.setObjectName("ResultLabel")
         self.result_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(self.result_label)
+
+        # Add the Matplotlib graph to the UI
+        self.plotter = OrbitPlotter(self)
+        main_layout.addWidget(self.plotter)
 
         main_layout.addStretch()
 

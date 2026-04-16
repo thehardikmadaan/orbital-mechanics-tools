@@ -19,7 +19,7 @@ class OrbitPlotter(FigureCanvasQTAgg):
         self.ax.set_facecolor('#080d14')
         self.ax.tick_params(colors='#5a6a80')
         for spine in self.ax.spines.values():
-            spine.set_color('rgba(0, 212, 255, 0.12)')
+            spine.set_color((0.0, 0.831, 1.0, 0.12))
 
         # draw a blank template to start
         self.draw_orbits(300, 35786)
