@@ -53,6 +53,36 @@ class OrbitPlotter(FigureCanvasQTAgg):
             self.flight_path_y = b * np.sin(theta_transfer)
 
             self.ax.plot(self.flight_path_x, self.flight_path_y, color='#00d4ff', linewidth=2, label="Transfer Path")
+        elif maneuver == "Bi-Elliptic Transfer":
+            if rb_km is None:
+                rb_km = 100000  # Fallback safety
+            rb = r_earth + rb_km
+
+            # 1. First Transfer (Outward to Deep Space)
+            a1 = (r1 + rb) / 2
+            c1 = a1 - r1
+            b1 = np.sqrt(a1 ** 2 - c1 ** 2)
+            theta1 = np.linspace(0, np.pi, 100)
+            x1 = a1 * np.cos(theta1) - c1
+            y1 = b1 * np.sin(theta1)
+
+            # 2. Second Transfer (Inward to Target Orbit)
+            a2 = (r2 + rb) / 2
+            c2 = (rb - r2) / 2  # The center of this ellipse is shifted differently
+            b2 = np.sqrt(a2 ** 2 - c2 ** 2)
+            # The second ellipse starts at deep space (angle pi) and flies to r2 (angle 2*pi)
+            theta2 = np.linspace(np.pi, 2 * np.pi, 100)
+            x2 = a2 * np.cos(theta2) - c2
+            y2 = b2 * np.sin(theta2)
+
+            # Combine the two paths so the animation flows perfectly!
+            self.flight_path_x = np.concatenate((x1, x2))
+            self.flight_path_y = np.concatenate((y1, y2))
+
+            # Plot the two distinct transfer lines
+            self.ax.plot(x1, y1, color='#00d4ff', linewidth=2, label="Transfer 1 (Outward)")
+            self.ax.plot(x2, y2, color='#7b61ff', linewidth=2, linestyle='-.', label="Transfer 2 (Inward)")
+
 
         self.ax.set_aspect('equal')
         self.ax.set_xticklabels([])
