@@ -156,7 +156,7 @@ class OrbitalDashboard(QMainWindow):
         panel_layout.addWidget(self.speed_slider, 4, 1)
 
         self.label_rb = QLabel("Apoapsis Radius (r_a, km):")
-        self.input_rb = QLineEdit("100000"
+        self.input_rb = QLineEdit("100000")
         panel_layout.addWidget(self.label_rb, 5, 0)
         panel_layout.addWidget(self.input_rb, 5, 1)
         self.label_rb.hide()

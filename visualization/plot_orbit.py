@@ -113,6 +113,14 @@ class OrbitPlotter(FigureCanvasQTAgg):
             self.ax.add_artist(self.rocket_marker)
             self.using_image = True
 
+            # 4. Thrust/Velocity Vector Arrow (Starts hidden)
+            # shrinkA and shrinkB prevent the arrow from detaching from the coordinates
+            self.vector_arrow = self.ax.annotate('', xy=(0, 0), xytext=(0, 0),
+                                                 arrowprops=dict(arrowstyle="->", color='#00d4ff', lw=2, shrinkA=0,
+                                                                 shrinkB=0),
+                                                 zorder=9)
+            self.vector_arrow.set_visible(False)
+
         except FileNotFoundError:
             self.rocket_marker, = self.ax.plot([], [], 'wo', markersize=8, zorder=5, label="Spacecraft")
             self.using_image = False
