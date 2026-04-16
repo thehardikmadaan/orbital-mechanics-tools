@@ -189,7 +189,7 @@ class OrbitalDashboard(QMainWindow):
     def calculate_mission(self):
         """This function runs when the button is clicked."""
         try:
-            # take input and  turn them into numbers (floats)
+            # take input and turn them into numbers (floats)
             alt1_km = float(self.input_r1.text())
             alt2_km = float(self.input_r2.text())
             final_mass = float(self.input_mass.text())
@@ -227,8 +227,7 @@ class OrbitalDashboard(QMainWindow):
 
                     self.result_label.setText("ERROR: DEEP SPACE RADIUS MUST BE LARGER THAN ORBITS.")
 
-                    return  # Stop the function right here!
-
+                    return
                 delta_v = bi_elliptic_transfer(mu, r1, r2, rb)
 
 
