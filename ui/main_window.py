@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QSlider, QComboBox, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer
 
-from core.astrodynamics import hohmann_transfer, bi_elliptic_transfer
+from core.astrodynamics import hohmann_transfer, bi_elliptic_transfer, phasing_maneuver
 from core.rocket_math import calculate_initial_mass
 
 from visualization.plot_orbit import OrbitPlotter
@@ -191,6 +191,16 @@ class OrbitalDashboard(QMainWindow):
         self.animation_timer.timeout.connect(self.animation_step)
         self.current_frame = 0
 
+        # 7. Phasing Orbit Phase Angle (Starts Hidden)
+        self.label_phase = QLabel("Phase Angle (degrees):")
+        self.input_phase = QLineEdit("10")  # Default 10 degree lead
+
+        panel_layout.addWidget(self.label_phase, 6, 0)
+        panel_layout.addWidget(self.input_phase, 6, 1)
+
+        self.label_phase.hide()
+        self.input_phase.hide()
+
     def calculate_mission(self):
         """This function runs when the button is clicked."""
         try:
@@ -236,9 +246,18 @@ class OrbitalDashboard(QMainWindow):
                 delta_v = bi_elliptic_transfer(mu, r1, r2, rb)
 
 
+
             elif maneuver_type == "Phasing Orbit":
 
-                delta_v = 0.0  # We will build this later
+                phase_angle = float(self.input_phase.text())
+
+                # Note: r2 is not used here, we stay in r1
+
+                delta_v = phasing_maneuver(mu, r1, phase_angle)
+
+                # Update graph for phasing (drawing a closed loop)
+
+                self.plotter.draw_orbits(alt1_km, alt1_km, maneuver=maneuver_type)
             wet_mass = calculate_initial_mass(delta_v, isp, final_mass)
             propellant = wet_mass - final_mass
             # 5. Update the Graph
@@ -252,6 +271,7 @@ class OrbitalDashboard(QMainWindow):
             # Speed slider controls the delay (1 to 100). Higher slider = lower delay = faster!
             delay_ms = int(1000 / self.speed_slider.value())
             self.animation_timer.start(delay_ms)
+
             # Update the UI
             result_text = f"SUCCESS: Δv Required: {delta_v:.2f} m/s | Propellant: {propellant:.2f} kg"
             self.result_label.setStyleSheet("color: #00d4ff;")  # Turn text cyan on success
@@ -291,16 +311,25 @@ class OrbitalDashboard(QMainWindow):
             self.plotter.update_rocket_position(x, y, 0, 0)
 
     def update_header(self, text):
-        """Updates the main title and dynamic inputs based on the dropdown selection."""
+        """Updates UI Title based on selected maneuver."""
         self.header.setText(text.upper())
 
-        # Toggle the Deep Space Radius input
+        # Reset all dynamic visibilities
+        self.label_rb.hide()
+        self.input_rb.hide()
+        self.label_phase.hide()
+        self.input_phase.hide()
+
+        # Show Target Orbit by default, hide it for Phasing
+        self.input_r2.show()
+
         if text == "Bi-Elliptic Transfer":
             self.label_rb.show()
             self.input_rb.show()
-        else:
-            self.label_rb.hide()
-            self.input_rb.hide()
+        elif text == "Phasing Orbit":
+            self.input_r2.hide()  # Pilot stays in r1
+            self.label_phase.show()
+            self.input_phase.show()
 
 def run_app():
     app = QApplication(sys.argv)
