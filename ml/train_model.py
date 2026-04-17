@@ -1,99 +1,63 @@
 import pandas as pd
-import numpy as np
 import os
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_absolute_error, r2_score
 import joblib
-from sklearn.model_selection import cross_val_score
 
 
 def train_surrogate_model():
-    print("Training surrogate model...")
+    print("Initiating AI Surrogate Model Training...")
 
-    # 1. Load the data
     current_folder = os.path.dirname(__file__)
     csv_path = os.path.join(current_folder, 'orbital_data.csv')
 
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"CSV file not found at: {csv_path}")
-
     df = pd.read_csv(csv_path)
-    print(f"Loaded {len(df)} rows from CSV.")
-
-    if df.empty:
-        raise ValueError("The CSV file is empty. Please provide valid training data.")
-
-    # 2. Drop NaN rows and validate
     df = df.dropna()
-    print(f"{len(df)} rows remaining after dropping NaN values.")
+    print(f"Loaded {len(df)} perfect rows.")
 
-    if df.empty:
-        raise ValueError(
-            "All rows were dropped by dropna(). "
-            "Your CSV likely contains NaN values in every row. "
-            "Please inspect and clean 'orbital_data.csv'."
-        )
-
-    # 3. Validate required columns exist before transforming
-    required_columns = ['Maneuver_Type', 'Propellant_kg', 'Delta_V_ms']
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        raise ValueError(
-            f"The following required columns are missing from the CSV: {missing_cols}\n"
-            f"Available columns: {df.columns.tolist()}"
-        )
-
-    # 4. Preprocess: One-Hot Encoding
     df = pd.get_dummies(df, columns=['Maneuver_Type'])
 
-    # 5. Separate features (X) and target (y)
-    # Transform the exponential curve into a linear one!
-    y = np.log1p(df['Propellant_kg'])
+    # We are predicting raw Propellant (NO logarithmic tricks needed for a Neural Network!)
+    y = df['Propellant_kg']
     X = df.drop(columns=['Propellant_kg', 'Delta_V_ms'])
 
-    print(f"Training with {len(X)} samples and {X.shape[1]} features.")
-
-    # 6. Split into 80% training / 20% testing
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 7. Scale Data & Train Neural Network
-    print("Scaling data and training Neural Network... Please wait.")
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    # --- THE MAGIC FIX: THE PIPELINE ---
+    print("Training Neural Network Pipeline... Please wait.")
+    model = Pipeline([
+        ('scaler', StandardScaler()),  # Step 1: Automatically scale inputs
+        ('nn', MLPRegressor(hidden_layer_sizes=(100, 100), max_iter=2000, random_state=42))  # Step 2: Predict
+    ])
 
-    # MLP is a Multi-Layer Perceptron (Neural Network)
-    # hidden_layer_sizes=(100, 50) means two layers of "neurons" to learn the curve
-    model = MLPRegressor(hidden_layer_sizes=(100, 50), max_iter=1000, random_state=42)
-    model.fit(X_train_scaled, y_train)
+    # Train the pipeline
+    model.fit(X_train, y_train)
 
-    #------ CROSS-VALIDATION CHECK
-    print("\nRunning 5-Fold Cross Validation... (This might take 10 seconds)")
-    # cv=5 means it trains and tests 5 separate times on different data chunks
+    # --- CROSS VALIDATION (Now it scales safely!) ---
+    print("\nRunning 5-Fold Cross Validation... (This might take 30 seconds)")
     cv_scores = cross_val_score(model, X, y, cv=5, scoring='r2')
     print(f"Scores for each fold: {cv_scores}")
     print(f"True Average Accuracy (Cross-Validated): {cv_scores.mean():.4f}")
 
-    # 8. Evaluate
+    # Evaluate
     predictions = model.predict(X_test)
     mae = mean_absolute_error(y_test, predictions)
     r2 = r2_score(y_test, predictions)
 
-    print("\nMODEL PERFORMANCE")
-    print(f"Mean Absolute Error: {mae:.2f} kg (How far off the AI is on average)")
-    print(f"Accuracy Score (R2): {r2:.4f} (1.0 is perfect)")
+    print("\n--- MODEL PERFORMANCE ---")
+    print(f"Mean Absolute Error: {mae:.2f} kg")
+    print(f"Accuracy Score (R2): {r2:.4f}")
 
-    # 9. Save the trained model
+    # Save the pipeline
     model_path = os.path.join(current_folder, 'surrogate_model.pkl')
     columns_path = os.path.join(current_folder, 'model_columns.pkl')
-
     joblib.dump(model, model_path)
     joblib.dump(X.columns.tolist(), columns_path)
-    print(f"\nModel saved successfully as: {model_path}")
+    print(f"\nModel Pipeline saved successfully!")
 
 
 if __name__ == "__main__":
     train_surrogate_model()
-
