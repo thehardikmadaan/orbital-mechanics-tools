@@ -58,4 +58,4 @@ def generate_data(num_samples = 10000):
 
 
 if __name__ == "__main__":
-    generate_dataset()
+    generate_data()
