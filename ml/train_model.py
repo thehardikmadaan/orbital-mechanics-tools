@@ -7,39 +7,67 @@ import joblib
 
 def train_surrogate_model():
     print("Training surrogate model...")
-    #1. load the data
+
+    # 1. Load the data
     current_folder = os.path.dirname(__file__)
     csv_path = os.path.join(current_folder, 'orbital_data.csv')
-    df = pd.read_csv(csv_path)
 
-    #2. preprocess the Data
-    #converting the data more readable formal for ML, using one Hot encoding
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"CSV file not found at: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    print(f"Loaded {len(df)} rows from CSV.")
+
+    if df.empty:
+        raise ValueError("The CSV file is empty. Please provide valid training data.")
+
+    # 2. Drop NaN rows and validate
+    df = df.dropna()
+    print(f"{len(df)} rows remaining after dropping NaN values.")
+
+    if df.empty:
+        raise ValueError(
+            "All rows were dropped by dropna(). "
+            "Your CSV likely contains NaN values in every row. "
+            "Please inspect and clean 'orbital_data.csv'."
+        )
+
+    # 3. Validate required columns exist before transforming
+    required_columns = ['Maneuver_Type', 'Propellant_kg', 'Delta_V_ms']
+    missing_cols = [col for col in required_columns if col not in df.columns]
+    if missing_cols:
+        raise ValueError(
+            f"The following required columns are missing from the CSV: {missing_cols}\n"
+            f"Available columns: {df.columns.tolist()}"
+        )
+
+    # 4. Preprocess: One-Hot Encoding
     df = pd.get_dummies(df, columns=['Maneuver_Type'])
 
-    # Separate Inputs (X) and the Target Output (y)
-    # I want the AI to predict the Propellant_kg directly from the mission parameters.
-    # drop Delta_V so the AI learns to skip that middle step entirely!
+    # 5. Separate features (X) and target (y)
     y = df['Propellant_kg']
     X = df.drop(columns=['Propellant_kg', 'Delta_V_ms'])
 
-    # Split into 80% Training data and 20% Testing data
+    print(f"Training with {len(X)} samples and {X.shape[1]} features.")
+
+    # 6. Split into 80% training / 20% testing
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 3 Training
-    print("Training Random Forest Regressor.... Please wait")
+    # 7. Train
+    print("Training Random Forest Regressor... Please wait.")
     model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
 
-    #  4 Evaluate the Model (Testing it on the 20% it hasn't seen yet)
+    # 8. Evaluate
     predictions = model.predict(X_test)
     mae = mean_absolute_error(y_test, predictions)
     r2 = r2_score(y_test, predictions)
 
-    print(" \n MODEL PERFORMANCE")
+    print("\nMODEL PERFORMANCE")
     print(f"Mean Absolute Error: {mae:.2f} kg (How far off the AI is on average)")
     print(f"Accuracy Score (R2): {r2:.4f} (1.0 is perfect)")
 
-    # 5. Save the Trained Model to a file
+    # 9. Save the trained model
     model_path = os.path.join(current_folder, 'surrogate_model.pkl')
     columns_path = os.path.join(current_folder, 'model_columns.pkl')
 
