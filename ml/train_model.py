@@ -2,10 +2,12 @@ import pandas as pd
 import numpy as np
 import os
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, r2_score
 import joblib
 from sklearn.model_selection import cross_val_score
+
 
 def train_surrogate_model():
     print("Training surrogate model...")
@@ -56,12 +58,18 @@ def train_surrogate_model():
     # 6. Split into 80% training / 20% testing
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 7. Train
-    print("Training Random Forest Regressor... Please wait.")
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
+    # 7. Scale Data & Train Neural Network
+    print("Scaling data and training Neural Network... Please wait.")
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-    # CROSS-VALIDATION CHECK
+    # MLP is a Multi-Layer Perceptron (Neural Network)
+    # hidden_layer_sizes=(100, 50) means two layers of "neurons" to learn the curve
+    model = MLPRegressor(hidden_layer_sizes=(100, 50), max_iter=1000, random_state=42)
+    model.fit(X_train_scaled, y_train)
+
+    #------ CROSS-VALIDATION CHECK
     print("\nRunning 5-Fold Cross Validation... (This might take 10 seconds)")
     # cv=5 means it trains and tests 5 separate times on different data chunks
     cv_scores = cross_val_score(model, X, y, cv=5, scoring='r2')

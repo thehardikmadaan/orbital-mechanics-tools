@@ -317,14 +317,21 @@ class OrbitalDashboard(QMainWindow):
                 input_df = pd.DataFrame(input_data)
                 input_df = input_df.reindex(columns=self.model_columns, fill_value=0)
 
-                # Get the prediction and reverse the logarithmic transform!
+                # Get the prediction
                 raw_prediction = self.ai_model.predict(input_df)[0]
-                ai_prediction = np.expm1(raw_prediction)
 
-                # Safety Check: AI should never predict negative fuel
-                if ai_prediction < 0: ai_prediction = 0.0
+                # --- HMI FAILSAFE: Prevent Math Overflows ---
+                # A proper logarithmic prediction for our dataset should rarely exceed 30.
+                if raw_prediction > 100:
+                    print(f"CRITICAL: AI output {raw_prediction} is too high! You are using the old model.")
+                    ai_propellant_text = "ERR: MODEL MISMATCH"
+                else:
+                    ai_prediction = np.expm1(raw_prediction)
 
-                ai_propellant_text = f"{ai_prediction:.2f} kg"
+                    # Safety Check: AI should never predict negative fuel
+                    if ai_prediction < 0: ai_prediction = 0.0
+
+                    ai_propellant_text = f"{ai_prediction:.2f} kg"
 
 
             # 5. Update the Graph
