@@ -83,7 +83,18 @@ class OrbitPlotter(FigureCanvasQTAgg):
             # Plot the two distinct transfer lines
             self.ax.plot(x1, y1, color='#00d4ff', linewidth=2, label="Transfer 1 (Outward)")
             self.ax.plot(x2, y2, color='#7b61ff', linewidth=2, linestyle='-.', label="Transfer 2 (Inward)")
+        elif maneuver == "Phasing Orbit":
+            # A phasing orbit is just an ellipse that starts and ends at r1
+            # We'll simulate a slightly smaller orbit to "catch up"
+            a = r1 * 0.95
+            c = r1 - a
+            b = np.sqrt(a ** 2 - c ** 2)
+            theta_transfer = np.linspace(0, 2 * np.pi, 100)
 
+            self.flight_path_x = a * np.cos(theta_transfer) + c
+            self.flight_path_y = b * np.sin(theta_transfer)
+
+            self.ax.plot(self.flight_path_x, self.flight_path_y, color='#7b61ff', linewidth=2, label="Phasing Loop")
 
         self.ax.set_aspect('equal')
         self.ax.set_xticklabels([])
