@@ -26,8 +26,8 @@ def generate_data(num_samples = 100000):
             m_type = random.choice(["Hohmann", "Bi-Elliptic", "Phasing"])
 
             # 2. Randomize Inputs based on typical mission envelopes
-            alt1 = random.uniform(200, 1000)  # LEO Parking
-            payload = random.uniform(500, 5000)  # Typical satellites
+            alt1 = random.uniform(200, 2000)  # LEO Parking (Up to Medium Earth Orbit)
+            payload = random.uniform(100, 100000)  # From tiny CubeSats up to Starship!
             r1 = (alt1 * 1000) + r_earth
 
             # Initialize empty variables
@@ -35,16 +35,21 @@ def generate_data(num_samples = 100000):
 
             # 3. Apply Ground Truth Physics
             if m_type == "Hohmann":
-                alt2 = random.uniform(2000, 35786)
+                # Expand to Lunar distance!
+                alt2 = random.uniform(2000, 400000)
                 delta_v = hohmann_transfer(mu, r1, (alt2 * 1000) + r_earth)
 
             elif m_type == "Bi-Elliptic":
-                alt2 = random.uniform(2000, 35786)
-                altb = random.uniform(40000, 100000)  # Deep space point
+                # Target anywhere from LEO to Lunar
+                alt2 = random.uniform(2000, 400000)
+                # CRITICAL MATH RULE: altb MUST be larger than alt2.
+                # We force it to be at least 10,000 km further out than the target!
+                altb = random.uniform(alt2 + 10000, 500000)
                 delta_v = bi_elliptic_transfer(mu, r1, (alt2 * 1000) + r_earth, (altb * 1000) + r_earth)
 
             elif m_type == "Phasing":
-                phase = random.uniform(1, 45)
+                # Phase angles from a tiny 1 degree shift up to half an orbit (180 degrees)
+                phase = random.uniform(1, 180)
                 delta_v = phasing_maneuver(mu, r1, phase)
 
             # 4. Calculate Fuel Mass
