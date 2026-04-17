@@ -1,6 +1,9 @@
 # ui/main_window.py
 import sys
 import math
+import pandas as pd
+import joblib
+import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QFrame, QGridLayout,
@@ -191,7 +194,24 @@ class OrbitalDashboard(QMainWindow):
         self.animation_timer.timeout.connect(self.animation_step)
         self.current_frame = 0
 
-        # 7. Phasing Orbit Phase Angle (Starts Hidden)
+        # 7. AI SURROGATE INTEGRATION
+        try:
+            # Locate the model files dynamically
+            current_folder = os.path.dirname(__file__)
+            project_root = os.path.abspath(os.path.join(current_folder, '..'))
+
+            model_path = os.path.join(project_root, 'ml', 'surrogate_model.pkl')
+            columns_path = os.path.join(project_root, 'ml', 'model_columns.pkl')
+
+            self.ai_model = joblib.load(model_path)
+            self.model_columns = joblib.load(columns_path)
+            self.ai_status = "ONLINE"
+        except FileNotFoundError:
+            # Failsafe: If the model isn't found, the dashboard still works on pure physics!
+            self.ai_model = None
+            self.ai_status = "OFFLINE"
+
+        # 8. Phasing Orbit Phase Angle (Starts Hidden)
         self.label_phase = QLabel("Phase Angle (degrees):")
         self.input_phase = QLineEdit("10")  # Default 10 degree lead
 
@@ -260,6 +280,39 @@ class OrbitalDashboard(QMainWindow):
                 self.plotter.draw_orbits(alt1_km, alt1_km, maneuver=maneuver_type)
             wet_mass = calculate_initial_mass(delta_v, isp, final_mass)
             propellant = wet_mass - final_mass
+
+            # --- AI SURROGATE PREDICTION ---
+            ai_propellant_text = "N/A"
+            if self.ai_model is not None:
+                # Format the inputs for the AI (Handling the One-Hot Encoding manually)
+                phase_angle = float(self.input_phase.text()) if maneuver_type == "Phasing Orbit" else 0.0
+                rb_safe = rb_km if maneuver_type == "Bi-Elliptic Transfer" else 0.0
+                r2_safe = alt2_km if maneuver_type != "Phasing Orbit" else 0.0
+
+                input_data = {
+                    'R1_km': [alt1_km],
+                    'R2_km': [r2_safe],
+                    'Rb_km': [rb_safe],
+                    'Phase_Angle': [phase_angle],
+                    'Payload_kg': [final_mass],
+                    'Maneuver_Type_Bi-Elliptic': [1 if maneuver_type == "Bi-Elliptic Transfer" else 0],
+                    'Maneuver_Type_Hohmann': [1 if maneuver_type == "Hohmann Transfer" else 0],
+                    'Maneuver_Type_Phasing': [1 if maneuver_type == "Phasing Orbit" else 0]
+                }
+
+                # Convert to DataFrame and align columns with the trained model
+                input_df = pd.DataFrame(input_data)
+                input_df = input_df.reindex(columns=self.model_columns, fill_value=0)
+
+                # Get the prediction!
+                ai_prediction = self.ai_model.predict(input_df)[0]
+
+                # Safety Check: AI should never predict negative fuel
+                if ai_prediction < 0: ai_prediction = 0.0
+
+                ai_propellant_text = f"{ai_prediction:.2f} kg"
+
+
             # 5. Update the Graph
             if maneuver_type == "Bi-Elliptic Transfer":
                 self.plotter.draw_orbits(alt1_km, alt2_km, maneuver=maneuver_type, rb_km=rb_km)
@@ -272,9 +325,11 @@ class OrbitalDashboard(QMainWindow):
             delay_ms = int(1000 / self.speed_slider.value())
             self.animation_timer.start(delay_ms)
 
-            # Update the UI
-            result_text = f"SUCCESS: Δv Required: {delta_v:.2f} m/s | Propellant: {propellant:.2f} kg"
-            self.result_label.setStyleSheet("color: #00d4ff;")  # Turn text cyan on success
+            # Update the UI Result Label (HMI Side-by-Side Verification)
+            result_text = (f"MISSION SUCCESS | Required Δv: {delta_v:.2f} m/s\n"
+                           f"PHYSICS Propellant: {propellant:.2f} kg  //  AI PREDICTED: {ai_propellant_text}")
+
+            self.result_label.setStyleSheet("color: #00d4ff;")
             self.result_label.setText(result_text)
 
         except ValueError:
