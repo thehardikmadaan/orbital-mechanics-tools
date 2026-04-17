@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import os
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
@@ -46,7 +47,8 @@ def train_surrogate_model():
     df = pd.get_dummies(df, columns=['Maneuver_Type'])
 
     # 5. Separate features (X) and target (y)
-    y = df['Propellant_kg']
+    # Transform the exponential curve into a linear one!
+    y = np.log1p(df['Propellant_kg'])
     X = df.drop(columns=['Propellant_kg', 'Delta_V_ms'])
 
     print(f"Training with {len(X)} samples and {X.shape[1]} features.")

@@ -25,30 +25,26 @@ def generate_data(num_samples = 100000):
             # 1. Choose a random maneuver profile
             m_type = random.choice(["Hohmann", "Bi-Elliptic", "Phasing"])
 
-            # 2. Randomize Inputs based on typical mission envelopes
-            alt1 = random.uniform(200, 2000)  # LEO Parking (Up to Medium Earth Orbit)
-            payload = random.uniform(100, 100000)  # From tiny CubeSats up to Starship!
+            # 2. Randomize Inputs for Universal Transfers
+            alt1 = random.uniform(200, 400000)  # Parking orbit can now be ANYWHERE (LEO to Lunar)
+            payload = random.uniform(100, 100000)  # Cubesat to Starship
             r1 = (alt1 * 1000) + r_earth
 
-            # Initialize empty variables
             alt2, altb, phase, delta_v = 0, 0, 0, 0
 
             # 3. Apply Ground Truth Physics
             if m_type == "Hohmann":
-                # Expand to Lunar distance!
-                alt2 = random.uniform(2000, 400000)
+                alt2 = random.uniform(200, 400000)  # Target can be anywhere
                 delta_v = hohmann_transfer(mu, r1, (alt2 * 1000) + r_earth)
 
             elif m_type == "Bi-Elliptic":
-                # Target anywhere from LEO to Lunar
-                alt2 = random.uniform(2000, 400000)
-                # CRITICAL MATH RULE: altb MUST be larger than alt2.
-                # We force it to be at least 10,000 km further out than the target!
-                altb = random.uniform(alt2 + 10000, 500000)
+                alt2 = random.uniform(200, 400000)
+                # CRITICAL LOGIC: rb must be higher than BOTH alt1 and alt2
+                highest_orbit = max(alt1, alt2)
+                altb = random.uniform(highest_orbit + 10000, 500000)
                 delta_v = bi_elliptic_transfer(mu, r1, (alt2 * 1000) + r_earth, (altb * 1000) + r_earth)
 
             elif m_type == "Phasing":
-                # Phase angles from a tiny 1 degree shift up to half an orbit (180 degrees)
                 phase = random.uniform(1, 180)
                 delta_v = phasing_maneuver(mu, r1, phase)
 

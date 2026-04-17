@@ -1,4 +1,5 @@
 # ui/main_window.py
+import numpy as np
 import sys
 import math
 import pandas as pd
@@ -241,6 +242,18 @@ class OrbitalDashboard(QMainWindow):
             # Call our core engine
             # Find out which maneuver the user selected
             maneuver_type = self.maneuver_box.currentText()
+            # Check Parking Orbit (h_park)
+            if alt1_km < 200 or alt1_km > 400000:
+                self.result_label.setStyleSheet("color: #ff6b35;")
+                self.result_label.setText("SYSTEM WARNING: PARKING ORBIT OUT OF BOUNDS (LIMIT: 200 - 400,000 KM).")
+                return
+
+            # Check Target Orbit (h_tgt) - Let's add this for total safety!
+            if maneuver_type != "Phasing Orbit":
+                if alt2_km < 200 or alt2_km > 400000:
+                    self.result_label.setStyleSheet("color: #ff6b35;")
+                    self.result_label.setText("SYSTEM WARNING: TARGET ORBIT OUT OF BOUNDS (LIMIT: 200 - 400,000 KM).")
+                    return
 
             # 4. Route to the correct core engine math
             if maneuver_type == "Hohmann Transfer":
@@ -304,8 +317,9 @@ class OrbitalDashboard(QMainWindow):
                 input_df = pd.DataFrame(input_data)
                 input_df = input_df.reindex(columns=self.model_columns, fill_value=0)
 
-                # Get the prediction!
-                ai_prediction = self.ai_model.predict(input_df)[0]
+                # Get the prediction and reverse the logarithmic transform!
+                raw_prediction = self.ai_model.predict(input_df)[0]
+                ai_prediction = np.expm1(raw_prediction)
 
                 # Safety Check: AI should never predict negative fuel
                 if ai_prediction < 0: ai_prediction = 0.0
