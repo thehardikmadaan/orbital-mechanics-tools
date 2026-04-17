@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from core.astrodynamics import hohmann_transfer, bi_elliptic_transfer, phasing_maneuver
 from core.rocket_math import calculate_initial_mass
 
-def generate_data(num_samples = 10000):
+def generate_data(num_samples = 100000):
     # Mission Constraints
     mu = 3.986e14  # Earth's gravity
     r_earth = 6371000  # Radius in meters
@@ -52,7 +52,7 @@ def generate_data(num_samples = 10000):
             propellant = wet_mass - payload
 
             # 5. Save the row
-            writer.writerow([m_type, alt1, alt2, altb, phase, payload, round(propellant, 2)])
+            writer.writerow([m_type, round(alt1, 2), round(alt2, 2), round(altb, 2), round(phase, 2), round(payload, 2), round(delta_v, 2), round(propellant, 2)])
 
     print(f"Mission Complete! {num_samples} data points saved to {file_path}")
 
