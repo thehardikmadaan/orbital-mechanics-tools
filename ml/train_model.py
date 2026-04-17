@@ -1,9 +1,11 @@
 import pandas as pd
+import numpy as np
 import os
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 import joblib
 
@@ -20,27 +22,28 @@ def train_surrogate_model():
 
     df = pd.get_dummies(df, columns=['Maneuver_Type'])
 
-    # We are predicting raw Propellant (NO logarithmic tricks needed for a Neural Network!)
     y = df['Propellant_kg']
     X = df.drop(columns=['Propellant_kg', 'Delta_V_ms'])
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # --- THE MAGIC FIX: THE PIPELINE ---
-    print("Training Neural Network Pipeline... Please wait.")
-    model = Pipeline([
-        ('scaler', StandardScaler()),  # Step 1: Automatically scale inputs
-        ('nn', MLPRegressor(hidden_layer_sizes=(100, 100), max_iter=2000, random_state=42))  # Step 2: Predict
+    print("Training Neural Network with Target Transformer... Please wait.")
+
+    # 1. The Base Pipeline (Scales inputs)
+    base_pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('nn', MLPRegressor(hidden_layer_sizes=(100, 100), max_iter=2000, random_state=42))
     ])
 
-    # Train the pipeline
-    model.fit(X_train, y_train)
+    # 2. The Target Transformer (Fixes the "Whale Problem" using logs)
+    model = TransformedTargetRegressor(
+        regressor=base_pipeline,
+        func=np.log1p,  # Flattens the exponential curve for training
+        inverse_func=np.expm1  # Automatically un-flattens it when the UI asks for a prediction!
+    )
 
-    # --- CROSS VALIDATION (Now it scales safely!) ---
-    print("\nRunning 5-Fold Cross Validation... (This might take 30 seconds)")
-    cv_scores = cross_val_score(model, X, y, cv=5, scoring='r2')
-    print(f"Scores for each fold: {cv_scores}")
-    print(f"True Average Accuracy (Cross-Validated): {cv_scores.mean():.4f}")
+    # Train the model
+    model.fit(X_train, y_train)
 
     # Evaluate
     predictions = model.predict(X_test)

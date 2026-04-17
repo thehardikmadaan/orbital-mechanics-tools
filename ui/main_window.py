@@ -297,7 +297,7 @@ class OrbitalDashboard(QMainWindow):
             # --- AI SURROGATE PREDICTION ---
             ai_propellant_text = "N/A"
             if self.ai_model is not None:
-                # Format the inputs for the AI (Handling the One-Hot Encoding manually)
+                # Format the inputs for the AI
                 phase_angle = float(self.input_phase.text()) if maneuver_type == "Phasing Orbit" else 0.0
                 rb_safe = rb_km if maneuver_type == "Bi-Elliptic Transfer" else 0.0
                 r2_safe = alt2_km if maneuver_type != "Phasing Orbit" else 0.0
@@ -317,21 +317,15 @@ class OrbitalDashboard(QMainWindow):
                 input_df = pd.DataFrame(input_data)
                 input_df = input_df.reindex(columns=self.model_columns, fill_value=0)
 
-                # Get the prediction
-                raw_prediction = self.ai_model.predict(input_df)[0]
+                # Get the prediction directly from the Pipeline!
+                ai_prediction = self.ai_model.predict(input_df)[0]
 
-                # --- HMI FAILSAFE: Prevent Math Overflows ---
-                # A proper logarithmic prediction for our dataset should rarely exceed 30.
-                if raw_prediction > 100:
-                    print(f"CRITICAL: AI output {raw_prediction} is too high! You are using the old model.")
-                    ai_propellant_text = "ERR: MODEL MISMATCH"
-                else:
-                    ai_prediction = np.expm1(raw_prediction)
+                # Safety Check: AI should never predict negative fuel
+                if ai_prediction < 0:
+                    ai_prediction = 0.0
 
-                    # Safety Check: AI should never predict negative fuel
-                    if ai_prediction < 0: ai_prediction = 0.0
-
-                    ai_propellant_text = f"{ai_prediction:.2f} kg"
+                ai_propellant_text = f"{ai_prediction:.2f} kg"
+            # -------------------------------
 
 
             # 5. Update the Graph
