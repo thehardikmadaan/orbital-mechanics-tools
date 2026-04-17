@@ -4,6 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 import joblib
+from sklearn.model_selection import cross_val_score
 
 def train_surrogate_model():
     print("Training surrogate model...")
@@ -57,6 +58,13 @@ def train_surrogate_model():
     print("Training Random Forest Regressor... Please wait.")
     model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
+
+    # CROSS-VALIDATION CHECK
+    print("\nRunning 5-Fold Cross Validation... (This might take 10 seconds)")
+    # cv=5 means it trains and tests 5 separate times on different data chunks
+    cv_scores = cross_val_score(model, X, y, cv=5, scoring='r2')
+    print(f"Scores for each fold: {cv_scores}")
+    print(f"True Average Accuracy (Cross-Validated): {cv_scores.mean():.4f}")
 
     # 8. Evaluate
     predictions = model.predict(X_test)
