@@ -737,14 +737,16 @@ class OrbitalDashboard(QMainWindow):
             if self.ai_model is not None:
                 try:
                     # Build the input row exactly as the model was trained on.
-                    # The one-hot encoding must match what generate_data.py produced:
-                    # Maneuver_Type_Bi-Elliptic, Maneuver_Type_Hohmann, Maneuver_Type_Phasing
+                    # One-hot encode Body and Maneuver_Type to match generate_data.py.
                     input_data = {
                         'R1_km':                     [alt1_km],
                         'R2_km':                     [alt2_km if maneuver_type != "Phasing Orbit" else 0.0],
                         'Rb_km':                     [rb_km],
                         'Phase_Angle':               [phase_angle],
                         'Payload_kg':                [final_mass],
+                        'Body_Earth':                [1 if body_name == "Earth" else 0],
+                        'Body_Mars':                 [1 if body_name == "Mars"  else 0],
+                        'Body_Moon':                 [1 if body_name == "Moon"  else 0],
                         'Maneuver_Type_Bi-Elliptic': [1 if maneuver_type == "Bi-Elliptic Transfer" else 0],
                         'Maneuver_Type_Hohmann':     [1 if maneuver_type == "Hohmann Transfer" else 0],
                         'Maneuver_Type_Phasing':     [1 if maneuver_type == "Phasing Orbit" else 0],
