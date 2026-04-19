@@ -9,6 +9,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from core.astrodynamics import hohmann_transfer, bi_elliptic_transfer, phasing_maneuver
 from core.rocket_math import calculate_initial_mass
 
+# All engine ISP values from ENGINE_PRESETS in rocket_math.py.
+# Sampled uniformly so the model learns the rocket equation across the full
+# range of chemical and electric propulsion systems.
+ENGINE_ISPS = [220, 260, 310, 450, 1600, 3000]
+
 # Per-body physics constants and valid altitude ranges
 BODY_CONFIGS = {
     "Earth": {
@@ -38,9 +43,6 @@ BODY_CONFIGS = {
 BODY_WEIGHTS = [0.60, 0.20, 0.20]
 BODY_NAMES   = ["Earth", "Moon", "Mars"]
 
-# Fixed Isp representing average chemical propulsion
-ISP = 310  # seconds
-
 
 def generate_data(num_samples=150_000):
     file_path = os.path.join(os.path.dirname(__file__), 'orbital_data.csv')
@@ -50,7 +52,7 @@ def generate_data(num_samples=150_000):
         writer.writerow([
             "Body", "Maneuver_Type",
             "R1_km", "R2_km", "Rb_km", "Phase_Angle",
-            "Payload_kg", "Delta_V_ms", "Propellant_kg"
+            "Payload_kg", "Isp", "Delta_V_ms", "Propellant_kg"
         ])
 
         generated = 0
@@ -66,6 +68,7 @@ def generate_data(num_samples=150_000):
             m_type  = random.choice(["Hohmann", "Bi-Elliptic", "Phasing"])
             alt1    = random.uniform(min_alt, max_alt)
             payload = random.uniform(100, 100_000)
+            isp     = random.choice(ENGINE_ISPS)
             r1      = (alt1 * 1000) + r_body_m
 
             alt2, altb, phase, delta_v = 0.0, 0.0, 0.0, 0.0
@@ -104,7 +107,7 @@ def generate_data(num_samples=150_000):
                 if delta_v <= 0:
                     continue
 
-                wet_mass   = calculate_initial_mass(delta_v, ISP, payload)
+                wet_mass   = calculate_initial_mass(delta_v, isp, payload)
                 propellant = wet_mass - payload
                 if propellant < 0:
                     continue
@@ -112,7 +115,7 @@ def generate_data(num_samples=150_000):
                 writer.writerow([
                     body_name, m_type,
                     round(alt1, 2), round(alt2, 2), round(altb, 2), round(phase, 2),
-                    round(payload, 2), round(delta_v, 2), round(propellant, 2)
+                    round(payload, 2), isp, round(delta_v, 2), round(propellant, 2)
                 ])
                 generated += 1
 

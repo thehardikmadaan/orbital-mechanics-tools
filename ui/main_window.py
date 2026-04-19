@@ -282,7 +282,7 @@ class OrbitalDashboard(QMainWindow):
 
         grid = QGridLayout()
         grid.setSpacing(8)
-        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(1, 1.2)
 
         row = 0
 
@@ -744,6 +744,7 @@ class OrbitalDashboard(QMainWindow):
                         'Rb_km':                     [rb_km],
                         'Phase_Angle':               [phase_angle],
                         'Payload_kg':                [final_mass],
+                        'Isp':                       [isp],
                         'Body_Earth':                [1 if body_name == "Earth" else 0],
                         'Body_Mars':                 [1 if body_name == "Mars"  else 0],
                         'Body_Moon':                 [1 if body_name == "Moon"  else 0],

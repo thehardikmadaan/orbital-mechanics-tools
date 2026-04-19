@@ -36,6 +36,7 @@ def train_surrogate_model():
     print(f"      Loaded {len(df):,} complete mission scenarios.")
     print(f"      Bodies:          {df['Body'].value_counts().to_dict()}")
     print(f"      Maneuver types:  {df['Maneuver_Type'].value_counts().to_dict()}")
+    print(f"      Isp values:      {sorted(df['Isp'].unique().tolist())}")
 
     # ── 2. Feature Engineering ────────────────────────────────────────────────
     # One-hot encode categorical variables (body + maneuver type).
