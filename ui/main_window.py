@@ -101,13 +101,13 @@ class OrbitalDashboard(QMainWindow):
             }
             QLabel#Eyebrow {
                 color: #7b61ff;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 11px;
                 letter-spacing: 3px;
             }
             QLabel#SectionLabel {
                 color: #7b61ff;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 10px;
                 letter-spacing: 2px;
             }
@@ -128,31 +128,31 @@ class OrbitalDashboard(QMainWindow):
             }
             QLabel#CardTitle {
                 color: #7b61ff;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 9px;
                 letter-spacing: 2px;
             }
             QLabel#CardValue {
                 color: #00d4ff;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 15px;
                 font-weight: 700;
             }
             QLabel#CardValueAlt {
                 color: #ff6b35;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 15px;
                 font-weight: 700;
             }
             QLabel#StatusOnline {
                 color: #00ff88;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 11px;
                 font-weight: 700;
             }
             QLabel#StatusOffline {
                 color: #ff6b35;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 11px;
                 font-weight: 700;
             }
@@ -162,7 +162,7 @@ class OrbitalDashboard(QMainWindow):
                 border: 1px solid rgba(0, 212, 255, 0.3);
                 border-radius: 4px;
                 padding: 8px 10px;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 13px;
             }
             QLineEdit:focus {
@@ -174,11 +174,11 @@ class OrbitalDashboard(QMainWindow):
                 color: #00d4ff;
                 border: 1px solid #00d4ff;
                 border-radius: 4px;
-                padding: 12px;
+                padding: 12px 6px;
                 font-family: 'Syne', 'Segoe UI', sans-serif;
                 font-weight: 700;
-                font-size: 13px;
-                letter-spacing: 2px;
+                font-size: 11px;
+                letter-spacing: 1px;
             }
             QPushButton#CalcButton:hover {
                 background-color: #00d4ff;
@@ -189,10 +189,10 @@ class OrbitalDashboard(QMainWindow):
                 color: #7b61ff;
                 border: 1px solid #7b61ff;
                 border-radius: 4px;
-                padding: 12px;
+                padding: 12px 6px;
                 font-family: 'Syne', 'Segoe UI', sans-serif;
                 font-weight: 700;
-                font-size: 13px;
+                font-size: 11px;
                 letter-spacing: 1px;
             }
             QPushButton#ResetButton:hover {
@@ -205,7 +205,7 @@ class OrbitalDashboard(QMainWindow):
                 border: 1px solid rgba(0, 212, 255, 0.3);
                 border-radius: 4px;
                 padding: 7px 10px;
-                font-family: 'DM Mono', 'Courier New', Courier;
+                font-family: 'Courier New', 'DejaVu Sans Mono', monospace;
                 font-size: 12px;
             }
             QComboBox::drop-down {
@@ -436,7 +436,7 @@ class OrbitalDashboard(QMainWindow):
         self.calc_button.setObjectName("CalcButton")
         self.reset_button = QPushButton("RESET")
         self.reset_button.setObjectName("ResetButton")
-        btn_row.addWidget(self.calc_button, 3)
+        btn_row.addWidget(self.calc_button, 4)
         btn_row.addWidget(self.reset_button, 1)
         left_layout.addLayout(btn_row)
 
@@ -474,7 +474,7 @@ class OrbitalDashboard(QMainWindow):
         # ── STATUS BAR ────────────────────────────────────────────────────────
         self.status_label = QLabel("SYSTEM STANDBY.  CONFIGURE MISSION PARAMETERS AND PRESS INITIATE.")
         self.status_label.setStyleSheet(
-            "color: #5a6a80; font-family: 'DM Mono', Courier; font-size: 11px;"
+            "color: #5a6a80; font-family: 'Courier New', 'DejaVu Sans Mono', monospace; font-size: 11px;"
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root_layout.addWidget(self.status_label)
