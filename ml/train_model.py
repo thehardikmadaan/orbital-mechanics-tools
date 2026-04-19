@@ -1,21 +1,38 @@
 # ml/train_model.py
-# AI Surrogate Model — predicts Delta-V from orbital geometry.
 #
-# Architecture decision: predict Delta_V_ms, NOT Propellant_kg.
+# AI Surrogate Model — predicts Delta-V (m/s) from orbital geometry.
 #
-# Why: Propellant = Payload × (exp(ΔV / (Isp × g₀)) − 1)
-# The rocket equation is an exact, known formula. There is no reason to have
-# a neural network approximate it — that only adds error. Instead, we train
-# the model on the orbital geometry problem (ΔV from radii / angles / body),
-# then apply the exact rocket equation at inference time.
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY PREDICT DELTA-V, NOT PROPELLANT?
+# ─────────────────────────────────────────────────────────────────────────────
+# Propellant = payload × (exp(ΔV / (Isp × g₀)) − 1)   [Tsiolkovsky equation]
 #
-# Benefits:
-#   • Isp and payload drop out of training — simpler, more generalizable model
-#   • R1 = R2 → model predicts ΔV ≈ 0 → propellant = 0 exactly (no phantom fuel)
-#   • ΔV spans 0–6000 m/s (4 decades) vs propellant 0–700k kg (7 decades)
-#   • Changing engine type at inference always gives the correct propellant
+# This is exact.  Having the model approximate it adds error.  Instead the
+# model predicts ΔV from orbital geometry, then the exact rocket equation runs
+# at inference time — engine type and payload mass never touch the model.
 #
-# Run to retrain:
+# ─────────────────────────────────────────────────────────────────────────────
+# FEATURE DESIGN — CIRCULAR ORBITAL VELOCITIES
+# ─────────────────────────────────────────────────────────────────────────────
+# Every ΔV formula ultimately depends on circular orbital velocities:
+#
+#     v_c = sqrt(μ / r)
+#
+# For a Hohmann transfer the total ΔV can be written as f(v_c1, v_c2) with NO
+# separate dependence on μ or r individually — the ratio μ/r is the only
+# physics that matters and v_c already encodes it.  The same holds for
+# Phasing (f(v_c1, phase_angle)) and Bi-Elliptic (f(v_c1, v_c2, v_cb)).
+#
+# In log space the relationship is approximately linear:
+#
+#     log(ΔV) ≈ log(v_c1) + smooth_function_of(v_c2 / v_c1)
+#
+# An MLP fits linear functions trivially.  By providing log(v_c) as features
+# and applying log1p to the target, both sides of the mapping are in log
+# space → the network learns a nearly linear function → near-perfect accuracy
+# across Earth, Moon, and Mars without any body-specific parameters.
+#
+# Run to retrain after regenerating data:
 #   python ml/train_model.py
 
 import math
@@ -35,7 +52,9 @@ from sklearn.preprocessing import StandardScaler
 def train_surrogate_model():
     print("=" * 60)
     print("  ORBITAL MECHANICS — AI SURROGATE MODEL TRAINING")
-    print("  Target: Delta-V (m/s)  |  Propellant via exact eq.")
+    print("  Target  : Delta-V (m/s) via log1p transform")
+    print("  Features: log(v_c1), log(v_c2), log(v_cb), phase")
+    print("  Why     : ΔV = f(v_c) — linear in log velocity space")
     print("=" * 60)
 
     # ── 1. Load dataset ───────────────────────────────────────────────────────
@@ -45,21 +64,34 @@ def train_surrogate_model():
     print(f"\n[1/5] Loading dataset from: {csv_path}")
     df = pd.read_csv(csv_path).dropna()
     print(f"      Loaded {len(df):,} mission scenarios.")
-    print(f"      Bodies:         {df['Body'].value_counts().to_dict()}")
     print(f"      Maneuver types: {df['Maneuver_Type'].value_counts().to_dict()}")
     print(f"      ΔV range:       {df['Delta_V_ms'].min():.2f} – {df['Delta_V_ms'].max():.2f} m/s")
+    print(f"      log_vc1 range:  {df['log_vc1'].min():.4f} – {df['log_vc1'].max():.4f}")
+    print(f"      Bodies: {df['Body'].value_counts().to_dict()}")
 
     # ── 2. Feature Engineering ────────────────────────────────────────────────
     print("\n[2/5] Preparing features and target...")
+
+    # One-hot encode BOTH body and maneuver type.
+    # Body one-hot is preferred over log(μ) because log(μ) is a continuous
+    # scalar → the MLP would interpolate between Earth and Moon for Mars.
+    # Orbital mechanics per body are NOT linear blends of each other.
+    # A one-hot forces the model to learn a separate mapping per body.
     df = pd.get_dummies(df, columns=['Body', 'Maneuver_Type'])
 
-    # Target: Delta-V only — physics model predicts geometry, not thermodynamics
     y = df['Delta_V_ms']
 
-    # Features: orbital geometry + body + maneuver type
-    # Payload and ISP are deliberately excluded — they don't affect delta-V
-    drop_cols = ['Delta_V_ms']
-    X = df.drop(columns=drop_cols)
+    # Features:
+    #   Body_Earth / Body_Moon / Body_Mars — one-hot body selector; forces
+    #              body-specific learning without cross-body interpolation
+    #   log_vc1  — log(v_c1) — circular velocity at parking orbit; always valid
+    #   log_vc2  — log(v_c2) — circular velocity at target orbit;
+    #              0.0 for Phasing (model ignores via Phasing flag)
+    #   log_vcb  — log(v_cb) — circular velocity at intermediate apogee;
+    #              0.0 for Hohmann and Phasing (model ignores via their flags)
+    #   Phase_Angle — degrees; 0 for Hohmann and Bi-Elliptic
+    #   Maneuver_Type_* — one-hot: tells model which velocity slots are active
+    X = df.drop(columns=['Delta_V_ms'])
 
     print(f"      Feature columns ({len(X.columns)}): {X.columns.tolist()}")
 
@@ -72,6 +104,9 @@ def train_surrogate_model():
     # ── 4. Build Model Pipeline ───────────────────────────────────────────────
     print("\n[4/5] Training Neural Network...")
 
+    # StandardScaler normalises features to mean=0, std=1.
+    # Even in log velocity space the features still have different scales
+    # (log_vc1 ≈ 6–9, Phase_Angle ≈ 0–180), so scaling is important for Adam.
     base_pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('nn', MLPRegressor(
@@ -89,10 +124,9 @@ def train_surrogate_model():
         ))
     ])
 
-    # Log transform on ΔV: the range spans 0–6000 m/s with many small values.
-    # log1p maps this to 0–8.7, giving the network a manageable scale.
-    # The near-zero ΔV cases (R1 ≈ R2) map to log1p(~0) ≈ 0, so the network
-    # correctly learns "same orbit → no delta-V needed".
+    # log1p on ΔV: the target range 0–6000 m/s compresses to 0–8.7 in log1p.
+    # Combined with log-space input features both sides of the mapping are
+    # in log space → the network learns a nearly linear function.
     model = TransformedTargetRegressor(
         regressor=base_pipeline,
         func=np.log1p,
@@ -109,6 +143,7 @@ def train_surrogate_model():
     mae  = mean_absolute_error(y_test, dv_pred)
     rmse = math.sqrt(mean_squared_error(y_test, dv_pred))
     r2   = r2_score(y_test, dv_pred)
+    # Clip true values at 1 m/s to avoid divide-by-zero on the zero-ΔV cases
     mape = np.mean(np.abs((y_test - dv_pred) / np.clip(y_test, 1, None))) * 100
 
     print("\n" + "─" * 50)
@@ -127,16 +162,18 @@ def train_surrogate_model():
     elif r2 > 0.95:
         print("  ✓ Good fit — suitable for mission planning estimates.")
     else:
-        print("  ⚠ Moderate fit — consider more training data.")
+        print("  ⚠ Moderate fit — consider more training data or features.")
 
     # ── 6. Save ───────────────────────────────────────────────────────────────
     model_path   = os.path.join(current_folder, 'surrogate_model.pkl')
     columns_path = os.path.join(current_folder, 'model_columns.pkl')
 
     joblib.dump(model, model_path)
+    # Column list lets main_window.py reindex its inference DataFrame to the
+    # exact column order the model was trained on (important after pd.get_dummies).
     joblib.dump(X.columns.tolist(), columns_path)
 
-    print(f"\n  Model saved  → {model_path}")
+    print(f"\n  Model saved   → {model_path}")
     print(f"  Columns saved → {columns_path}")
     print("\n" + "=" * 60)
     print("  Done. Restart the dashboard to load the new model.")

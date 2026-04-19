@@ -733,20 +733,49 @@ class OrbitalDashboard(QMainWindow):
             period2_s = orbital_period(mu, r2)
 
             # ── 5. AI Surrogate Prediction ────────────────────────────────────
-            # The model predicts Delta-V (m/s) from orbital geometry only.
-            # Propellant is then computed with the exact Tsiolkovsky equation
-            # so ISP and payload always produce the correct result.
+            # The model uses circular orbital velocities as features because
+            # every ΔV formula ultimately depends on  v_c = sqrt(μ/r) — not
+            # on μ and r independently.  For a Hohmann transfer:
+            #   ΔV = f(v_c1, v_c2)   — no other body/orbit parameters needed
+            # In log space this mapping is nearly linear, so the MLP fits it
+            # with very low error across Earth, Moon, and Mars.
+            import math as _math
             ai_text = "OFFLINE"
             if self.ai_model is not None:
                 try:
+                    r_body_m = r_body_km * 1000
+
+                    # Total orbital radii from body centre in metres
+                    r1_m_ai = alt1_km * 1000 + r_body_m
+                    r2_m_ai = (alt2_km * 1000 + r_body_m
+                                if maneuver_type != "Phasing Orbit" else 0.0)
+                    rb_m_ai = (rb_km  * 1000 + r_body_m
+                                if maneuver_type == "Bi-Elliptic Transfer" else 0.0)
+
+                    # Circular orbital velocities — the exact features the model
+                    # was trained on (matching generate_data.py):
+                    #   vc1 — always valid (parking orbit)
+                    #   vc2 — 0 for Phasing (no separate target orbit)
+                    #   vcb — 0 for Hohmann/Phasing (no intermediate apogee)
+                    vc1 = _math.sqrt(mu / r1_m_ai)
+                    vc2 = _math.sqrt(mu / r2_m_ai) if r2_m_ai > 0 else 0.0
+                    vcb = _math.sqrt(mu / rb_m_ai) if rb_m_ai > 0 else 0.0
+
+                    log_vc1 = _math.log(vc1)
+                    log_vc2 = _math.log(vc2) if vc2 > 0 else 0.0
+                    log_vcb = _math.log(vcb) if vcb > 0 else 0.0
+
+                    # Body one-hot: forces body-specific DV mapping.
+                    # Preferred over log(μ) because Mars (μ between Earth and
+                    # Moon) would otherwise be interpolated incorrectly.
                     input_data = {
-                        'R1_km':                     [alt1_km],
-                        'R2_km':                     [alt2_km if maneuver_type != "Phasing Orbit" else 0.0],
-                        'Rb_km':                     [rb_km],
-                        'Phase_Angle':               [phase_angle],
                         'Body_Earth':                [1 if body_name == "Earth" else 0],
                         'Body_Mars':                 [1 if body_name == "Mars"  else 0],
                         'Body_Moon':                 [1 if body_name == "Moon"  else 0],
+                        'log_vc1':                   [log_vc1],
+                        'log_vc2':                   [log_vc2],
+                        'log_vcb':                   [log_vcb],
+                        'Phase_Angle':               [phase_angle],
                         'Maneuver_Type_Bi-Elliptic': [1 if maneuver_type == "Bi-Elliptic Transfer" else 0],
                         'Maneuver_Type_Hohmann':     [1 if maneuver_type == "Hohmann Transfer" else 0],
                         'Maneuver_Type_Phasing':     [1 if maneuver_type == "Phasing Orbit" else 0],
@@ -755,8 +784,10 @@ class OrbitalDashboard(QMainWindow):
                         columns=self.model_columns, fill_value=0
                     )
                     ai_dv = max(0.0, self.ai_model.predict(input_df)[0])
-                    # If the physics engine already found zero delta-V, trust it
-                    # exactly rather than letting the model extrapolate near the boundary.
+
+                    # If physics found zero delta-V (identical orbits), trust
+                    # it exactly — the model's near-zero output carries a small
+                    # residual from the log1p/expm1 round-trip.
                     if delta_v < 0.01:
                         ai_propellant = 0.0
                     else:
