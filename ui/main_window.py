@@ -756,7 +756,7 @@ class OrbitalDashboard(QMainWindow):
                     ai_prediction = self.ai_model.predict(input_df)[0]
                     ai_prediction = max(0.0, ai_prediction)   # Physics: fuel can't be negative
                     ai_text = f"{ai_prediction:,.1f} kg"
-                except Exception as _:
+                except Exception:
                     ai_text = "PREDICT ERR"
 
             # ── 6. Update result cards ─────────────────────────────────────────
