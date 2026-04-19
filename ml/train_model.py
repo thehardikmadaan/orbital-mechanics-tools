@@ -7,32 +7,43 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Propellant = payload × (exp(ΔV / (Isp × g₀)) − 1)   [Tsiolkovsky equation]
 #
-# This is exact.  Having the model approximate it adds error.  Instead the
-# model predicts ΔV from orbital geometry, then the exact rocket equation runs
-# at inference time — engine type and payload mass never touch the model.
+# This is exact.  The model predicts ΔV from orbital geometry.  The rocket
+# equation runs at inference time — ISP and payload never touch the model.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# FEATURE DESIGN — CIRCULAR ORBITAL VELOCITIES
+# WHY NO BODY FLAG? — THE CORE PHYSICS ARGUMENT
 # ─────────────────────────────────────────────────────────────────────────────
-# Every ΔV formula ultimately depends on circular orbital velocities:
+# For a Hohmann transfer, setting k = v_c1/v_c2 = sqrt(r2/r1):
 #
-#     v_c = sqrt(μ / r)
+#   ΔV₁ = v_c1 × (k × sqrt(2/(k²+1)) − 1)
+#   ΔV₂ = v_c2 × (1 − sqrt(2/(k²+1)))
 #
-# For a Hohmann transfer the total ΔV can be written as f(v_c1, v_c2) with NO
-# separate dependence on μ or r individually — the ratio μ/r is the only
-# physics that matters and v_c already encodes it.  The same holds for
-# Phasing (f(v_c1, phase_angle)) and Bi-Elliptic (f(v_c1, v_c2, v_cb)).
+# The body's gravitational parameter μ and the individual radii r1, r2 do NOT
+# appear — they cancel.  The same identity holds for Phasing and Bi-Elliptic.
 #
-# In log space the relationship is approximately linear:
+# Consequence: a body one-hot flag is WRONG — it teaches the model that Earth
+# and Moon at the same (v_c1, v_c2) pair have different ΔV, but they don't.
+# Using log(μ) as a continuous body identifier is equally wrong: the model
+# interpolates between Earth and Moon for Mars, but orbital mechanics are not
+# a linear blend across bodies.
 #
-#     log(ΔV) ≈ log(v_c1) + smooth_function_of(v_c2 / v_c1)
+# The correct inputs are ONLY the circular velocities:
+#   Hohmann    : (log_vc1, log_vc2)
+#   Phasing    : (log_vc1, phase_angle)
+#   Bi-Elliptic: (log_vc1, log_vc2, log_vcb)
 #
-# An MLP fits linear functions trivially.  By providing log(v_c) as features
-# and applying log1p to the target, both sides of the mapping are in log
-# space → the network learns a nearly linear function → near-perfect accuracy
-# across Earth, Moon, and Mars without any body-specific parameters.
+# At inference time, main_window.py computes v_c = sqrt(μ/r) using the
+# selected body's μ and converts altitude to total orbital radius — exactly
+# the same transformation used in generate_data.py.
 #
-# Run to retrain after regenerating data:
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY LOG SPACE?
+# ─────────────────────────────────────────────────────────────────────────────
+# The mapping log(ΔV) ≈ log(v_c1) + smooth_function(log(v_c2/v_c1)) is nearly
+# linear.  An MLP fits linear functions trivially.  With log1p on the target
+# and log on the inputs, both sides are in log space → exceptional accuracy.
+#
+# Run to retrain:
 #   python ml/train_model.py
 
 import math
@@ -53,8 +64,8 @@ def train_surrogate_model():
     print("=" * 60)
     print("  ORBITAL MECHANICS — AI SURROGATE MODEL TRAINING")
     print("  Target  : Delta-V (m/s) via log1p transform")
-    print("  Features: log(v_c1), log(v_c2), log(v_cb), phase")
-    print("  Why     : ΔV = f(v_c) — linear in log velocity space")
+    print("  Features: log(vc1), log(vc2), log(vcb), phase_angle")
+    print("  No body flag — ΔV = f(v_c) exactly, body-independent")
     print("=" * 60)
 
     # ── 1. Load dataset ───────────────────────────────────────────────────────
@@ -66,31 +77,23 @@ def train_surrogate_model():
     print(f"      Loaded {len(df):,} mission scenarios.")
     print(f"      Maneuver types: {df['Maneuver_Type'].value_counts().to_dict()}")
     print(f"      ΔV range:       {df['Delta_V_ms'].min():.2f} – {df['Delta_V_ms'].max():.2f} m/s")
-    print(f"      log_vc1 range:  {df['log_vc1'].min():.4f} – {df['log_vc1'].max():.4f}")
-    print(f"      Bodies: {df['Body'].value_counts().to_dict()}")
+    print(f"      log_vc1 range:  {df['log_vc1'].min():.3f} – {df['log_vc1'].max():.3f}")
 
     # ── 2. Feature Engineering ────────────────────────────────────────────────
     print("\n[2/5] Preparing features and target...")
 
-    # One-hot encode BOTH body and maneuver type.
-    # Body one-hot is preferred over log(μ) because log(μ) is a continuous
-    # scalar → the MLP would interpolate between Earth and Moon for Mars.
-    # Orbital mechanics per body are NOT linear blends of each other.
-    # A one-hot forces the model to learn a separate mapping per body.
-    df = pd.get_dummies(df, columns=['Body', 'Maneuver_Type'])
+    # One-hot encode maneuver type only — NO body flag (see header above).
+    # The maneuver flag tells the model which velocity slots are active.
+    df = pd.get_dummies(df, columns=['Maneuver_Type'])
 
     y = df['Delta_V_ms']
 
     # Features:
-    #   Body_Earth / Body_Moon / Body_Mars — one-hot body selector; forces
-    #              body-specific learning without cross-body interpolation
-    #   log_vc1  — log(v_c1) — circular velocity at parking orbit; always valid
-    #   log_vc2  — log(v_c2) — circular velocity at target orbit;
-    #              0.0 for Phasing (model ignores via Phasing flag)
-    #   log_vcb  — log(v_cb) — circular velocity at intermediate apogee;
-    #              0.0 for Hohmann and Phasing (model ignores via their flags)
-    #   Phase_Angle — degrees; 0 for Hohmann and Bi-Elliptic
-    #   Maneuver_Type_* — one-hot: tells model which velocity slots are active
+    #   log_vc1  — log(v_c1) at parking orbit; always valid
+    #   log_vc2  — log(v_c2) at target orbit;  0.0 sentinel for Phasing
+    #   log_vcb  — log(v_cb) at intermediate apogee; 0.0 for Hohmann/Phasing
+    #   Phase_Angle — degrees (Phasing only; 0 otherwise)
+    #   Maneuver_Type_* — one-hot: activates the right velocity slot(s)
     X = df.drop(columns=['Delta_V_ms'])
 
     print(f"      Feature columns ({len(X.columns)}): {X.columns.tolist()}")
@@ -104,9 +107,9 @@ def train_surrogate_model():
     # ── 4. Build Model Pipeline ───────────────────────────────────────────────
     print("\n[4/5] Training Neural Network...")
 
-    # StandardScaler normalises features to mean=0, std=1.
-    # Even in log velocity space the features still have different scales
-    # (log_vc1 ≈ 6–9, Phase_Angle ≈ 0–180), so scaling is important for Adam.
+    # StandardScaler normalises all features to mean=0, std=1.
+    # This is important because log_vc1 ≈ 5.6–9.0 while Phase_Angle ≈ 0–180 —
+    # very different scales that would dominate Adam's gradient otherwise.
     base_pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('nn', MLPRegressor(
@@ -124,9 +127,8 @@ def train_surrogate_model():
         ))
     ])
 
-    # log1p on ΔV: the target range 0–6000 m/s compresses to 0–8.7 in log1p.
-    # Combined with log-space input features both sides of the mapping are
-    # in log space → the network learns a nearly linear function.
+    # log1p on ΔV compresses the 0–7784 m/s range to 0–9.0 in log1p.
+    # Combined with log-space inputs, the full mapping is nearly linear.
     model = TransformedTargetRegressor(
         regressor=base_pipeline,
         func=np.log1p,
@@ -143,7 +145,7 @@ def train_surrogate_model():
     mae  = mean_absolute_error(y_test, dv_pred)
     rmse = math.sqrt(mean_squared_error(y_test, dv_pred))
     r2   = r2_score(y_test, dv_pred)
-    # Clip true values at 1 m/s to avoid divide-by-zero on the zero-ΔV cases
+    # Clip true values at 1 m/s so near-zero DV cases don't inflate MAPE
     mape = np.mean(np.abs((y_test - dv_pred) / np.clip(y_test, 1, None))) * 100
 
     print("\n" + "─" * 50)
@@ -170,7 +172,7 @@ def train_surrogate_model():
 
     joblib.dump(model, model_path)
     # Column list lets main_window.py reindex its inference DataFrame to the
-    # exact column order the model was trained on (important after pd.get_dummies).
+    # exact column order the model was trained on.
     joblib.dump(X.columns.tolist(), columns_path)
 
     print(f"\n  Model saved   → {model_path}")

@@ -765,13 +765,10 @@ class OrbitalDashboard(QMainWindow):
                     log_vc2 = _math.log(vc2) if vc2 > 0 else 0.0
                     log_vcb = _math.log(vcb) if vcb > 0 else 0.0
 
-                    # Body one-hot: forces body-specific DV mapping.
-                    # Preferred over log(μ) because Mars (μ between Earth and
-                    # Moon) would otherwise be interpolated incorrectly.
+                    # No body flag passed to the model — ΔV = f(vc1, vc2) exactly,
+                    # with no separate body dependence (μ and r cancel in the
+                    # vis-viva equation when expressed via circular velocities).
                     input_data = {
-                        'Body_Earth':                [1 if body_name == "Earth" else 0],
-                        'Body_Mars':                 [1 if body_name == "Mars"  else 0],
-                        'Body_Moon':                 [1 if body_name == "Moon"  else 0],
                         'log_vc1':                   [log_vc1],
                         'log_vc2':                   [log_vc2],
                         'log_vcb':                   [log_vcb],
