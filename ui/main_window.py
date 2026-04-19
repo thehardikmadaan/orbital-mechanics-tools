@@ -270,7 +270,7 @@ class OrbitalDashboard(QMainWindow):
         # ── LEFT COLUMN: Input Panel ──────────────────────────────────────────
         left_panel = QFrame()
         left_panel.setObjectName("Panel")
-        left_panel.setFixedWidth(400)
+        left_panel.setFixedWidth(460)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(18, 18, 18, 18)
         left_layout.setSpacing(12)

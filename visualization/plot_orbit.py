@@ -229,17 +229,17 @@ class OrbitPlotter(FigureCanvasQTAgg):
             fontfamily='monospace'
         )
 
-        # Legend outside the plot area to avoid covering the orbits
-        self.ax.legend(
+        # Legend outside the plot area — right margin sized to fit full label text
+        legend = self.ax.legend(
             loc='center left',
             bbox_to_anchor=(1.02, 0.5),
             facecolor='#0a121e',
             edgecolor=(0, 212/255, 255/255, 0.1),
             labelcolor='#9aacbc',
-            fontsize=9,
+            fontsize=8,
             framealpha=0.9,
         )
-        self.fig.subplots_adjust(right=0.70, left=0.04, top=0.94, bottom=0.04)
+        self.fig.subplots_adjust(right=0.60, left=0.04, top=0.94, bottom=0.04)
         self.draw()
 
         # ── Load the rocket sprite for animation ───────────────────────────────
