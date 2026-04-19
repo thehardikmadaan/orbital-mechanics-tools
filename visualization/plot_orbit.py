@@ -234,7 +234,7 @@ class OrbitPlotter(FigureCanvasQTAgg):
             loc='center left',
             bbox_to_anchor=(1.02, 0.5),
             facecolor='#0a121e',
-            edgecolor='rgba(0,212,255,0.1)',
+            edgecolor=(0, 212/255, 255/255, 0.1),
             labelcolor='#9aacbc',
             fontsize=9,
             framealpha=0.9,
