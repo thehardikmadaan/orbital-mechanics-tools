@@ -733,18 +733,17 @@ class OrbitalDashboard(QMainWindow):
             period2_s = orbital_period(mu, r2)
 
             # ── 5. AI Surrogate Prediction ────────────────────────────────────
+            # The model predicts Delta-V (m/s) from orbital geometry only.
+            # Propellant is then computed with the exact Tsiolkovsky equation
+            # so ISP and payload always produce the correct result.
             ai_text = "OFFLINE"
             if self.ai_model is not None:
                 try:
-                    # Build the input row exactly as the model was trained on.
-                    # One-hot encode Body and Maneuver_Type to match generate_data.py.
                     input_data = {
                         'R1_km':                     [alt1_km],
                         'R2_km':                     [alt2_km if maneuver_type != "Phasing Orbit" else 0.0],
                         'Rb_km':                     [rb_km],
                         'Phase_Angle':               [phase_angle],
-                        'Payload_kg':                [final_mass],
-                        'Isp':                       [isp],
                         'Body_Earth':                [1 if body_name == "Earth" else 0],
                         'Body_Mars':                 [1 if body_name == "Mars"  else 0],
                         'Body_Moon':                 [1 if body_name == "Moon"  else 0],
@@ -752,13 +751,18 @@ class OrbitalDashboard(QMainWindow):
                         'Maneuver_Type_Hohmann':     [1 if maneuver_type == "Hohmann Transfer" else 0],
                         'Maneuver_Type_Phasing':     [1 if maneuver_type == "Phasing Orbit" else 0],
                     }
-                    input_df = pd.DataFrame(input_data)
-                    # Align column order to what the model expects
-                    input_df = input_df.reindex(columns=self.model_columns, fill_value=0)
-
-                    ai_prediction = self.ai_model.predict(input_df)[0]
-                    ai_prediction = max(0.0, ai_prediction)   # Physics: fuel can't be negative
-                    ai_text = f"{ai_prediction:,.1f} kg"
+                    input_df = pd.DataFrame(input_data).reindex(
+                        columns=self.model_columns, fill_value=0
+                    )
+                    ai_dv = max(0.0, self.ai_model.predict(input_df)[0])
+                    # If the physics engine already found zero delta-V, trust it
+                    # exactly rather than letting the model extrapolate near the boundary.
+                    if delta_v < 0.01:
+                        ai_propellant = 0.0
+                    else:
+                        ai_wet        = calculate_initial_mass(ai_dv, isp, final_mass)
+                        ai_propellant = max(0.0, ai_wet - final_mass)
+                    ai_text = f"{ai_propellant:,.1f} kg"
                 except Exception:
                     ai_text = "PREDICT ERR"
 

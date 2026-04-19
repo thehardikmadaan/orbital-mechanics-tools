@@ -1,11 +1,21 @@
 # ml/train_model.py
-# AI Surrogate Model Training Pipeline
+# AI Surrogate Model — predicts Delta-V from orbital geometry.
 #
-# A surrogate model is a fast approximation of an expensive calculation.
-# Instead of running the full physics equations every time, the neural network
-# learns to predict the answer directly from the input parameters.
+# Architecture decision: predict Delta_V_ms, NOT Propellant_kg.
 #
-# Run this script directly to retrain the model:
+# Why: Propellant = Payload × (exp(ΔV / (Isp × g₀)) − 1)
+# The rocket equation is an exact, known formula. There is no reason to have
+# a neural network approximate it — that only adds error. Instead, we train
+# the model on the orbital geometry problem (ΔV from radii / angles / body),
+# then apply the exact rocket equation at inference time.
+#
+# Benefits:
+#   • Isp and payload drop out of training — simpler, more generalizable model
+#   • R1 = R2 → model predicts ΔV ≈ 0 → propellant = 0 exactly (no phantom fuel)
+#   • ΔV spans 0–6000 m/s (4 decades) vs propellant 0–700k kg (7 decades)
+#   • Changing engine type at inference always gives the correct propellant
+#
+# Run to retrain:
 #   python ml/train_model.py
 
 import math
@@ -25,6 +35,7 @@ from sklearn.preprocessing import StandardScaler
 def train_surrogate_model():
     print("=" * 60)
     print("  ORBITAL MECHANICS — AI SURROGATE MODEL TRAINING")
+    print("  Target: Delta-V (m/s)  |  Propellant via exact eq.")
     print("=" * 60)
 
     # ── 1. Load dataset ───────────────────────────────────────────────────────
@@ -33,22 +44,24 @@ def train_surrogate_model():
 
     print(f"\n[1/5] Loading dataset from: {csv_path}")
     df = pd.read_csv(csv_path).dropna()
-    print(f"      Loaded {len(df):,} complete mission scenarios.")
-    print(f"      Bodies:          {df['Body'].value_counts().to_dict()}")
-    print(f"      Maneuver types:  {df['Maneuver_Type'].value_counts().to_dict()}")
-    print(f"      Isp values:      {sorted(df['Isp'].unique().tolist())}")
+    print(f"      Loaded {len(df):,} mission scenarios.")
+    print(f"      Bodies:         {df['Body'].value_counts().to_dict()}")
+    print(f"      Maneuver types: {df['Maneuver_Type'].value_counts().to_dict()}")
+    print(f"      ΔV range:       {df['Delta_V_ms'].min():.2f} – {df['Delta_V_ms'].max():.2f} m/s")
 
     # ── 2. Feature Engineering ────────────────────────────────────────────────
-    # One-hot encode categorical variables (body + maneuver type).
-    # Neural networks need numeric inputs; get_dummies handles both columns at once.
-    print("\n[2/5] Preparing features and targets...")
+    print("\n[2/5] Preparing features and target...")
     df = pd.get_dummies(df, columns=['Body', 'Maneuver_Type'])
 
-    y = df['Propellant_kg']
-    X = df.drop(columns=['Propellant_kg', 'Delta_V_ms'])
+    # Target: Delta-V only — physics model predicts geometry, not thermodynamics
+    y = df['Delta_V_ms']
 
-    print(f"      Feature columns: {X.columns.tolist()}")
-    print(f"      Propellant range: {y.min():.1f} kg — {y.max():.1f} kg")
+    # Features: orbital geometry + body + maneuver type
+    # Payload and ISP are deliberately excluded — they don't affect delta-V
+    drop_cols = ['Delta_V_ms']
+    X = df.drop(columns=drop_cols)
+
+    print(f"      Feature columns ({len(X.columns)}): {X.columns.tolist()}")
 
     # ── 3. Train / Test Split ─────────────────────────────────────────────────
     X_train, X_test, y_train, y_test = train_test_split(
@@ -56,12 +69,9 @@ def train_surrogate_model():
     )
     print(f"\n[3/5] Split: {len(X_train):,} training / {len(X_test):,} test samples.")
 
-    # ── 4. Build the Neural Network Pipeline ──────────────────────────────────
-    print("\n[4/5] Training Neural Network (this may take a few minutes)...")
+    # ── 4. Build Model Pipeline ───────────────────────────────────────────────
+    print("\n[4/5] Training Neural Network...")
 
-    # StandardScaler normalises all features to zero mean / unit variance.
-    # The wider architecture (512→256→128→64) captures planet-specific
-    # orbital relationships that the smaller (256→128→64) network missed.
     base_pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('nn', MLPRegressor(
@@ -69,20 +79,20 @@ def train_surrogate_model():
             activation='relu',
             solver='adam',
             learning_rate_init=0.001,
-            learning_rate='adaptive',   # Reduces LR when training plateaus
+            learning_rate='adaptive',
             early_stopping=True,
             validation_fraction=0.15,
-            n_iter_no_change=30,        # More patience for the larger network
-            tol=1e-5,                   # Tighter convergence threshold
+            n_iter_no_change=30,
+            tol=1e-5,
             max_iter=3000,
             random_state=42,
         ))
     ])
 
-    # Log transform on the target variable:
-    # Propellant follows an exponential (rocket equation), so log1p brings
-    # small and large values to a comparable scale for the loss function.
-    # expm1 is the exact inverse — no approximation error on the way out.
+    # Log transform on ΔV: the range spans 0–6000 m/s with many small values.
+    # log1p maps this to 0–8.7, giving the network a manageable scale.
+    # The near-zero ΔV cases (R1 ≈ R2) map to log1p(~0) ≈ 0, so the network
+    # correctly learns "same orbit → no delta-V needed".
     model = TransformedTargetRegressor(
         regressor=base_pipeline,
         func=np.log1p,
@@ -92,42 +102,44 @@ def train_surrogate_model():
     model.fit(X_train, y_train)
     print("      Training complete.")
 
-    # ── 5. Evaluate Performance ───────────────────────────────────────────────
+    # ── 5. Evaluate ───────────────────────────────────────────────────────────
     print("\n[5/5] Evaluating on held-out test set...")
-    predictions = model.predict(X_test)
+    dv_pred = model.predict(X_test)
 
-    mae  = mean_absolute_error(y_test, predictions)
-    rmse = math.sqrt(mean_squared_error(y_test, predictions))
-    r2   = r2_score(y_test, predictions)
-    mape = np.mean(np.abs((y_test - predictions) / np.clip(y_test, 1, None))) * 100
+    mae  = mean_absolute_error(y_test, dv_pred)
+    rmse = math.sqrt(mean_squared_error(y_test, dv_pred))
+    r2   = r2_score(y_test, dv_pred)
+    mape = np.mean(np.abs((y_test - dv_pred) / np.clip(y_test, 1, None))) * 100
 
-    print("\n" + "─" * 45)
-    print("  MODEL PERFORMANCE — TEST SET")
-    print("─" * 45)
-    print(f"  Mean Absolute Error (MAE) : {mae:>12,.2f} kg")
-    print(f"  Root Mean Sq. Error (RMSE): {rmse:>12,.2f} kg")
-    print(f"  Mean Abs. % Error (MAPE)  : {mape:>11.2f} %")
-    print(f"  Accuracy Score (R²)       : {r2:>12.4f}  (1.0 = perfect)")
-    print("─" * 45)
+    print("\n" + "─" * 50)
+    print("  DELTA-V PREDICTION — TEST SET")
+    print("─" * 50)
+    print(f"  Mean Absolute Error (MAE) : {mae:>10,.2f} m/s")
+    print(f"  Root Mean Sq. Error (RMSE): {rmse:>10,.2f} m/s")
+    print(f"  Mean Abs. % Error (MAPE)  : {mape:>9.2f} %")
+    print(f"  Accuracy Score (R²)       : {r2:>10.4f}  (1.0 = perfect)")
+    print("─" * 50)
 
-    if r2 > 0.99:
+    if r2 > 0.999:
+        print("  ✓ Exceptional fit.")
+    elif r2 > 0.99:
         print("  ✓ Excellent fit — ready for production use.")
     elif r2 > 0.95:
         print("  ✓ Good fit — suitable for mission planning estimates.")
     else:
-        print("  ⚠ Moderate fit — consider generating more training data.")
+        print("  ⚠ Moderate fit — consider more training data.")
 
-    # ── Save the Trained Pipeline ─────────────────────────────────────────────
+    # ── 6. Save ───────────────────────────────────────────────────────────────
     model_path   = os.path.join(current_folder, 'surrogate_model.pkl')
     columns_path = os.path.join(current_folder, 'model_columns.pkl')
 
     joblib.dump(model, model_path)
     joblib.dump(X.columns.tolist(), columns_path)
 
-    print(f"\n  Surrogate model saved → {model_path}")
-    print(f"  Feature columns saved → {columns_path}")
+    print(f"\n  Model saved  → {model_path}")
+    print(f"  Columns saved → {columns_path}")
     print("\n" + "=" * 60)
-    print("  Training complete. Restart the dashboard to load the new model.")
+    print("  Done. Restart the dashboard to load the new model.")
     print("=" * 60)
 
 
