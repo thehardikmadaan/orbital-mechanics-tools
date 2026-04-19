@@ -41,6 +41,28 @@ from core.rocket_math import (
 from visualization.plot_orbit import OrbitPlotter
 import matplotlib.image as mpimg
 
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+import matplotlib as mpl
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from matplotlib.patches import FancyArrowPatch
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CENTRAL BODY PARAMETERS
+# These values drive the orbital diagram and physics engine.
+# ESA/NASA mission planners use a fixed table of parameters in their tools.
+# ─────────────────────────────────────────────────────────────────────────────
+BODY_RADIUS_KM = {
+    "Earth": 6371.0,
+    "Moon":  1737.0,
+    "Mars":  3389.5
+}
+BODY_COLOURS = {
+    "Earth": "#00d4ff",    # Cyan
+    "Moon":  "#e8edf5",    # Off-White
+    "Mars":  "#ff6b35"     # Orange
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TARGET ORBIT PRESETS
