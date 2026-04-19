@@ -270,7 +270,7 @@ class OrbitalDashboard(QMainWindow):
         # ── LEFT COLUMN: Input Panel ──────────────────────────────────────────
         left_panel = QFrame()
         left_panel.setObjectName("Panel")
-        left_panel.setFixedWidth(370)
+        left_panel.setFixedWidth(400)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(18, 18, 18, 18)
         left_layout.setSpacing(12)
@@ -323,8 +323,8 @@ class OrbitalDashboard(QMainWindow):
         self.preset_box = QComboBox()
         self.preset_box.addItems(list(TARGET_PRESETS.keys()))
         self.preset_box.setToolTip("Quick-fill the target altitude with a standard reference orbit.")
-        self.preset_box.setFixedWidth(38)  # Narrow — acts as a dropdown trigger
-        self.preset_box.setStyleSheet("QComboBox { padding: 7px 2px; font-size: 10px; }")
+        self.preset_box.setFixedWidth(42)  # Narrow — acts as a dropdown trigger
+        self.preset_box.setStyleSheet("QComboBox { padding: 7px 0px; font-size: 10px; }")
         target_col.addWidget(self.input_r2)
         target_col.addWidget(self.preset_box)
         grid.addLayout(target_col, row, 1)

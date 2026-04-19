@@ -239,7 +239,7 @@ class OrbitPlotter(FigureCanvasQTAgg):
             fontsize=9,
             framealpha=0.9,
         )
-        self.fig.subplots_adjust(right=0.72, left=0.04, top=0.94, bottom=0.04)
+        self.fig.subplots_adjust(right=0.70, left=0.04, top=0.94, bottom=0.04)
         self.draw()
 
         # ── Load the rocket sprite for animation ───────────────────────────────
