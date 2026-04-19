@@ -782,6 +782,16 @@ class OrbitalDashboard(QMainWindow):
                     )
                     ai_dv = max(0.0, self.ai_model.predict(input_df)[0])
 
+                    # Inclination is not a model feature — add it analytically,
+                    # exactly as the physics engine does, using the exact formula.
+                    if incl_deg != 0:
+                        r2_for_incl = r2_m_ai if r2_m_ai > 0 else r1_m_ai
+                        v_avg_ai = (
+                            _math.sqrt(mu / r1_m_ai) +
+                            _math.sqrt(mu / r2_for_incl)
+                        ) / 2
+                        ai_dv += plane_change_dv(v_avg_ai, incl_deg)
+
                     # If physics found zero delta-V (identical orbits), trust
                     # it exactly — the model's near-zero output carries a small
                     # residual from the log1p/expm1 round-trip.
