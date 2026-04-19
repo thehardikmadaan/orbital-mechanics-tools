@@ -154,6 +154,79 @@ Orbits are drawn to scale, so users immediately see the geometric relationship b
 
 ---
 
+## Orbital Radius & Altitude Limits (Per Body)
+
+The dashboard enforces hard input bounds per celestial body, defined in `core/astrodynamics.py` as `BODY_PARAMS` and validated in `ui/main_window.py` before any physics runs. If you enter an altitude outside these ranges, the status bar throws an error and the calculation is blocked.
+
+### 🌍 Earth
+
+| Parameter | Value | Why |
+|---|---|---|
+| **Min altitude (h₁/h₂)** | **200 km** | The tooltip in the code states this explicitly: *"below this, drag decays orbit in days."* The ISS at ~420 km still needs regular reboosts. 200 km is the hard floor for any stable mission profile. |
+| **Max altitude (h₁/h₂)** | **384,400 km** | Lunar distance — the farthest preset in `TARGET_PRESETS`. This is the apogee of a trans-lunar injection trajectory, covering everything from LEO all the way to Moon transfer orbits. |
+| **Default parking orbit** | **300 km** | A clean, stable LEO — above the drag floor, representative of crewed missions. |
+| **Default target orbit** | **35,786 km** | Geostationary orbit (GEO) — the most common mission-planning benchmark. A satellite here has a 24-hour period and appears stationary over one point on Earth. |
+| **Body radius used** | **6,371 km** | All altitudes are converted to absolute radii: `r = alt_km × 1000 + 6,371,000 m` before being passed to the physics engine. |
+
+**Built-in target presets (Earth):**
+- LEO — 300 km (ISS, Hubble, most crewed missions)
+- SSO — 550 km (Sun-synchronous, Earth observation)
+- MEO — 20,200 km (GPS, Galileo, GLONASS)
+- GEO — 35,786 km (TV satellites, weather, comms)
+- Lunar Distance — 384,400 km (trans-lunar injection apogee)
+
+---
+
+### 🌙 Moon
+
+| Parameter | Value | Why |
+|---|---|---|
+| **Min altitude** | Defined in `BODY_PARAMS["Moon"]["min_alt_km"]` | Low lunar orbits are inherently unstable due to **mascons** — mass concentrations from ancient meteor impacts that make the Moon's gravity field lumpy. Below ~100 km, orbits precess and decay without constant correction. |
+| **Max altitude** | Defined in `BODY_PARAMS["Moon"]["max_alt_km"]` | Capped before the Moon's sphere of influence weakens and the three-body Earth–Moon–spacecraft regime kicks in. |
+| **Body radius used** | **1,737 km** | Hardcoded in `BODY_RADIUS_KM` in `main_window.py`. |
+| **μ (gravitational param)** | **4.905 × 10¹² m³/s²** | Shown in the Central Body tooltip in the UI. Roughly 1/81st of Earth's μ, giving much lower orbital velocities (~1.6 km/s at 100 km altitude vs Earth's ~7.8 km/s). |
+
+---
+
+### 🔴 Mars
+
+| Parameter | Value | Why |
+|---|---|---|
+| **Min altitude** | Defined in `BODY_PARAMS["Mars"]["min_alt_km"]` | Mars has a thin atmosphere (~1% of Earth's density), but at orbital velocities (~3.5 km/s) it still causes meaningful drag below ~170–200 km. Aerobraking is used deliberately for Mars Orbit Insertion but must be tightly controlled. |
+| **Max altitude** | Defined in `BODY_PARAMS["Mars"]["max_alt_km"]` | Capped at or near **areosynchronous orbit (~17,039 km altitude)** — the Mars equivalent of GEO, where a satellite's period matches Mars's ~24h 37m rotation. |
+| **Body radius used** | **3,389.5 km** | Hardcoded in `BODY_RADIUS_KM` in `main_window.py`. |
+| **μ (gravitational param)** | **4.283 × 10¹³ m³/s²** | Shown in the Central Body tooltip. About 10.7% of Earth's μ. |
+
+---
+
+### Bi-Elliptic: The Deep-Space Apogee (r_b)
+
+For Bi-Elliptic transfers, there is an additional input — the intermediate apogee altitude `r_b` — with its own geometric constraint enforced in the code:
+
+```python
+if rb <= r1 or rb <= r2:
+    error("DEEP-SPACE APOGEE (r_b) MUST BE LARGER THAN BOTH ORBITS.")
+```
+
+The default is **100,000 km** for Earth — well beyond GEO, pushing into deep cislunar space. The higher `r_b` is, the less total delta-v the three-burn sequence costs (at the expense of a much longer flight time). This is the counter-intuitive efficiency gain that makes Bi-Elliptic transfers worthwhile when the target-to-initial orbit ratio exceeds ~11.94.
+
+The ML training data enforces the matching constraint: `vcb < min(vc1, vc2) × 0.80`, ensuring the intermediate apogee is always comfortably beyond both the parking and target orbits in the training set.
+
+---
+
+### How the ML Training Velocity Range Maps to These Limits
+
+The neural network was not trained on altitudes or radii directly. Instead it was trained on **circular orbital velocities** — because the delta-v formulas mathematically depend only on `v_c = sqrt(μ/r)`, not on μ or r independently. The training range:
+
+| Bound | Velocity | Corresponds to |
+|---|---|---|
+| **v_min = 261 m/s** | Lower | Moon at ~70,000 km altitude — the slowest realistic circular orbit across all three bodies |
+| **v_max = 7,784 m/s** | Upper | Earth at 200 km altitude — the fastest realistic circular orbit (LEO floor) |
+
+This means a single model covers Earth, Moon, and Mars with no body flags needed. A Moon orbit at 100 km (v_c ≈ 1,633 m/s) and an Earth orbit at 20,200 km GPS altitude (v_c ≈ 3,874 m/s) are just different points on the same learned function. The body's μ and radius cancel out in the physics — only the circular velocity at each orbit matters.
+
+---
+
 ## Why This Project Is Impressive
 
 **Domain depth:** The project doesn't fake the physics. Hohmann, Bi-Elliptic, and Phasing maneuvers are implemented from first principles using the correct orbital mechanics formulas — not approximations.
@@ -168,4 +241,4 @@ Orbits are drawn to scale, so users immediately see the geometric relationship b
 
 ---
 
-*Project by Hardik  — github.com/thehardikmadaan/orbital-mechanics-tools*
+*Project by Hardik — github.com/thehardikmadaan/orbital-mechanics-tools*
