@@ -11,10 +11,7 @@
 # spacecraft simulators) because of its reliability and cross-platform support.
 
 import sys
-import math
 import os
-
-import numpy as np
 import pandas as pd
 import joblib
 
@@ -22,10 +19,9 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QGridLayout,
-    QSlider, QComboBox, QSizePolicy, QToolTip
+    QSlider, QComboBox, QSizePolicy
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
 
 # Our own physics and visualisation modules
 from core.astrodynamics import (
@@ -39,13 +35,7 @@ from core.rocket_math import (
     mass_fraction, payload_fraction
 )
 from visualization.plot_orbit import OrbitPlotter
-import matplotlib.image as mpimg
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-from matplotlib.figure import Figure
-import matplotlib as mpl
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from matplotlib.patches import FancyArrowPatch
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CENTRAL BODY PARAMETERS
@@ -526,7 +516,8 @@ class OrbitalDashboard(QMainWindow):
             self.ai_badge.setObjectName("StatusOffline")
 
     # ── HELPER: Create a labelled input field label ───────────────────────────
-    def _field_label(self, text):
+    @staticmethod
+    def _field_label(text):
         """Creates a consistently-styled input field label."""
         lbl = QLabel(text)
         lbl.setStyleSheet(
@@ -535,7 +526,8 @@ class OrbitalDashboard(QMainWindow):
         return lbl
 
     # ── HELPER: Create a result display card ─────────────────────────────────
-    def _result_card(self, title_text, value_text, value_style):
+    @staticmethod
+    def _result_card(title_text, value_text, value_style):
         """
         Builds a small card widget with a category title and a data value.
         Returns the card QFrame so it can be added to the layout.
@@ -555,7 +547,8 @@ class OrbitalDashboard(QMainWindow):
         value.setObjectName(value_style)
         card_layout.addWidget(value)
 
-        card.value_label = value   # Easy reference for updates
+        # Let's attach the specific label for direct text updating
+        setattr(card, 'value_label', value)
         return card
 
     # ── SLOT: Apply target orbit preset ───────────────────────────────────────
@@ -619,7 +612,7 @@ class OrbitalDashboard(QMainWindow):
             (self.card_period1, "—"),
             (self.card_massfrac, "—"),
         ]:
-            card.value_label.setText(default)
+            getattr(card, 'value_label').setText(default)
 
         self.status_label.setText(
             "SYSTEM RESET.  CONFIGURE MISSION PARAMETERS AND PRESS INITIATE."
@@ -686,6 +679,9 @@ class OrbitalDashboard(QMainWindow):
             # ── 3. Route to the correct physics function ───────────────────────
             rb_km = 0.0   # Default for maneuvers that don't use rb
             phase_angle = 0.0
+            
+            delta_v = 0.0
+            transfer_time_s = 0.0
 
             if maneuver_type == "Hohmann Transfer":
                 delta_v = hohmann_transfer(mu, r1, r2)
@@ -712,8 +708,8 @@ class OrbitalDashboard(QMainWindow):
                     return
                 delta_v = phasing_maneuver(mu, r1, phase_angle)
                 # Phasing time = one phasing orbit period (approximately)
-                T_initial = orbital_period(mu, r1)
-                transfer_time_s = T_initial - (phase_angle / 360.0) * T_initial
+                t_initial = orbital_period(mu, r1)
+                transfer_time_s = t_initial - (phase_angle / 360.0) * t_initial
 
             # ── Optional inclination change Δv added on top ───────────────────
             # Plane changes are done most efficiently at the transfer point
@@ -760,16 +756,16 @@ class OrbitalDashboard(QMainWindow):
                     ai_prediction = self.ai_model.predict(input_df)[0]
                     ai_prediction = max(0.0, ai_prediction)   # Physics: fuel can't be negative
                     ai_text = f"{ai_prediction:,.1f} kg"
-                except Exception:
+                except Exception as _:
                     ai_text = "PREDICT ERR"
 
             # ── 6. Update result cards ─────────────────────────────────────────
-            self.card_dv.value_label.setText(f"{delta_v:,.1f} m/s")
-            self.card_time.value_label.setText(self._format_time(transfer_time_s))
-            self.card_phys.value_label.setText(f"{propellant:,.1f} kg")
-            self.card_ai.value_label.setText(ai_text)
-            self.card_period1.value_label.setText(self._format_time(period1_s))
-            self.card_massfrac.value_label.setText(f"{mf_pct:.1f} %")
+            getattr(self.card_dv, 'value_label').setText(f"{delta_v:,.1f} m/s")
+            getattr(self.card_time, 'value_label').setText(self._format_time(transfer_time_s))
+            getattr(self.card_phys, 'value_label').setText(f"{propellant:,.1f} kg")
+            getattr(self.card_ai, 'value_label').setText(ai_text)
+            getattr(self.card_period1, 'value_label').setText(self._format_time(period1_s))
+            getattr(self.card_massfrac, 'value_label').setText(f"{mf_pct:.1f} %")
 
             # Build a concise status message for the bottom bar
             p2_str = self._format_time(period2_s)
@@ -837,7 +833,8 @@ class OrbitalDashboard(QMainWindow):
             self.plotter.update_rocket_position(x, y, 0, 0)
 
     # ── HELPER: Format seconds into a readable time string ────────────────────
-    def _format_time(self, seconds):
+    @staticmethod
+    def _format_time(seconds):
         """
         Converts a duration in seconds to a human-readable string.
         Uses minutes for short transfers (< 2 hours), hours for medium,
