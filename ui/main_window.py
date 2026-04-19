@@ -1,462 +1,851 @@
-import sys
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QComboBox, QGroupBox, QGridLayout,
-    QProgressBar, QSizePolicy
-)
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QIcon
+# ui/main_window.py
+# The Mission Control Dashboard — the main interface for the Orbital Transfer System.
+#
+# This window ties together all three layers of the project:
+#   1. Physics engine (core/) — the ground-truth calculations
+#   2. AI surrogate (ml/)     — fast learned predictions for comparison
+#   3. Visualisation (visualization/) — animated orbital diagrams
+#
+# Built with PySide6, which is the Qt6 Python binding. Qt is used in real
+# aerospace software (e.g., ESAC ground station tools, KDE applications on
+# spacecraft simulators) because of its reliability and cross-platform support.
 
-# Import our custom mathematical engines and visualizers
-from mechanics.hohmann import hohmann_transfer
-from mechanics.bi_elliptic import bi_elliptic_transfer
-from mechanics.phasing import phasing_orbit
+import sys
+import math
+import os
+
+import numpy as np
+import pandas as pd
+import joblib
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget,
+    QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QFrame, QGridLayout,
+    QSlider, QComboBox, QSizePolicy, QToolTip
+)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
+
+# Our own physics and visualisation modules
+from core.astrodynamics import (
+    hohmann_transfer, hohmann_transfer_time,
+    bi_elliptic_transfer, bi_elliptic_transfer_time,
+    phasing_maneuver, orbital_period, plane_change_dv,
+    circular_velocity, BODY_PARAMS
+)
+from core.rocket_math import (
+    calculate_initial_mass, ENGINE_PRESETS,
+    mass_fraction, payload_fraction
+)
 from visualization.plot_orbit import OrbitPlotter
+import matplotlib.image as mpimg
+
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+import matplotlib as mpl
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from matplotlib.patches import FancyArrowPatch
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CENTRAL BODY PARAMETERS
+# These values drive the orbital diagram and physics engine.
+# ESA/NASA mission planners use a fixed table of parameters in their tools.
+# ─────────────────────────────────────────────────────────────────────────────
+BODY_RADIUS_KM = {
+    "Earth": 6371.0,
+    "Moon":  1737.0,
+    "Mars":  3389.5
+}
+BODY_COLOURS = {
+    "Earth": "#00d4ff",    # Cyan
+    "Moon":  "#e8edf5",    # Off-White
+    "Mars":  "#ff6b35"     # Orange
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TARGET ORBIT PRESETS
+# These are the standard reference orbits used by ESA/NASA mission planners.
+# They give the user a quick way to select a realistic destination without
+# needing to remember the altitude numbers.
+# ─────────────────────────────────────────────────────────────────────────────
+TARGET_PRESETS = {
+    "Custom":                   None,       # User types their own value
+    "LEO — Low Earth (300 km)": 300,        # ISS, Hubble, most crewed missions
+    "SSO — Sun-Sync (550 km)":  550,        # Earth observation satellites
+    "MEO — GPS (20,200 km)":    20200,      # GPS, Galileo, GLONASS
+    "GEO — Geostationary (35,786 km)": 35786,  # TV satellites, weather, comms
+    "Lunar Distance (384,400 km)":     384400,  # Moon transfer orbit apogee
+}
 
 
 class OrbitalDashboard(QMainWindow):
-    """
-    The main user interface for the Orbital Transfer System HMI.
-    """
-
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Orbital Transfer System HMI v2.1.4")
-        self.setGeometry(100, 100, 1100, 650)
-        self.setMinimumSize(900, 600)
+        self.setWindowTitle("Orbital Transfer System — Mission Control")
+        self.setMinimumSize(1100, 820)
+        self.setGeometry(80, 80, 1150, 900)
 
-        # Set dark theme styling for the main window
+        # ── GLOBAL STYLESHEET ─────────────────────────────────────────────────
+        # Dark space theme: #020408 background, cyan (#00d4ff) for data readouts,
+        # purple (#7b61ff) for system labels, orange (#ff6b35) for warnings/targets.
+        # These colours were chosen to match ESA's mission control aesthetic and
+        # provide sufficient contrast for long-duration readability.
         self.setStyleSheet("""
-            QMainWindow {
-                background-color: #0d141e; /* Deep space navy */
+            QMainWindow, QWidget {
+                background-color: #020408;
             }
             QLabel {
-                color: #e0e6ed;
-                font-family: 'Inter', -apple-system, sans-serif;
+                color: #e8edf5;
+                font-family: 'Outfit', 'Segoe UI', sans-serif;
                 font-size: 13px;
             }
-            QGroupBox {
-                background-color: #151f2e;
-                border: 1px solid #2a3a50;
-                border-radius: 6px;
-                margin-top: 1.5ex;
-                padding-top: 15px;
-                color: #00d4ff; /* Cyan accent for group headers */
-                font-weight: 600;
-                font-size: 12px;
+            QLabel#Header {
+                color: #00d4ff;
+                font-family: 'Syne', 'Segoe UI', sans-serif;
+                font-size: 26px;
+                font-weight: 800;
                 letter-spacing: 1px;
             }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 5px;
-                left: 10px;
-                top: 5px;
+            QLabel#Eyebrow {
+                color: #7b61ff;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 11px;
+                letter-spacing: 3px;
             }
-            QLineEdit, QComboBox {
-                background-color: #0a0f18;
-                border: 1px solid #2a3a50;
+            QLabel#SectionLabel {
+                color: #7b61ff;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 10px;
+                letter-spacing: 2px;
+            }
+            QFrame#Panel {
+                background-color: #080d14;
+                border: 1px solid rgba(0, 212, 255, 0.12);
+                border-radius: 8px;
+            }
+            QFrame#ResultPanel {
+                background-color: #080d14;
+                border: 1px solid rgba(0, 212, 255, 0.2);
+                border-radius: 8px;
+            }
+            QFrame#ResultCard {
+                background-color: #0d1520;
+                border: 1px solid rgba(0, 212, 255, 0.08);
+                border-radius: 6px;
+            }
+            QLabel#CardTitle {
+                color: #7b61ff;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 9px;
+                letter-spacing: 2px;
+            }
+            QLabel#CardValue {
+                color: #00d4ff;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 15px;
+                font-weight: 700;
+            }
+            QLabel#CardValueAlt {
+                color: #ff6b35;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 15px;
+                font-weight: 700;
+            }
+            QLabel#StatusOnline {
+                color: #00ff88;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QLabel#StatusOffline {
+                color: #ff6b35;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QLineEdit {
+                background-color: #020408;
+                color: #00d4ff;
+                border: 1px solid rgba(0, 212, 255, 0.3);
                 border-radius: 4px;
-                padding: 6px;
-                color: #ffffff;
-                font-family: 'DM Mono', Courier, monospace;
-            }
-            QLineEdit:focus, QComboBox:focus {
-                border: 1px solid #00d4ff; /* Focus ring */
-            }
-            QPushButton {
-                background-color: #00d4ff;
-                color: #080d14;
-                border: none;
-                border-radius: 4px;
-                padding: 10px 15px;
-                font-weight: bold;
+                padding: 8px 10px;
+                font-family: 'DM Mono', 'Courier New', Courier;
                 font-size: 13px;
-                letter-spacing: 0.5px;
             }
-            QPushButton:hover {
-                background-color: #33ddff;
+            QLineEdit:focus {
+                border: 1px solid #00d4ff;
+                background-color: rgba(0, 212, 255, 0.05);
             }
-            QPushButton:pressed {
-                background-color: #009ebf;
+            QPushButton#CalcButton {
+                background-color: transparent;
+                color: #00d4ff;
+                border: 1px solid #00d4ff;
+                border-radius: 4px;
+                padding: 12px;
+                font-family: 'Syne', 'Segoe UI', sans-serif;
+                font-weight: 700;
+                font-size: 13px;
+                letter-spacing: 2px;
             }
-            QPushButton#calcButton {
-                background-color: #7b61ff; /* Purple for calculation */
-                color: white;
+            QPushButton#CalcButton:hover {
+                background-color: #00d4ff;
+                color: #020408;
             }
-            QPushButton#calcButton:hover {
-                background-color: #927bff;
+            QPushButton#ResetButton {
+                background-color: transparent;
+                color: #7b61ff;
+                border: 1px solid #7b61ff;
+                border-radius: 4px;
+                padding: 12px;
+                font-family: 'Syne', 'Segoe UI', sans-serif;
+                font-weight: 700;
+                font-size: 13px;
+                letter-spacing: 1px;
+            }
+            QPushButton#ResetButton:hover {
+                background-color: #7b61ff;
+                color: #020408;
+            }
+            QComboBox {
+                background-color: #020408;
+                color: #00d4ff;
+                border: 1px solid rgba(0, 212, 255, 0.3);
+                border-radius: 4px;
+                padding: 7px 10px;
+                font-family: 'DM Mono', 'Courier New', Courier;
+                font-size: 12px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0d1520;
+                color: #e8edf5;
+                border: 1px solid rgba(0, 212, 255, 0.2);
+                selection-background-color: rgba(0, 212, 255, 0.15);
+            }
+            QSlider::groove:horizontal {
+                border: 1px solid #1a2535;
+                height: 6px;
+                background: #0d1520;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #ff6b35;
+                width: 16px;
+                margin: -5px 0;
+                border-radius: 8px;
+            }
+            QSlider::sub-page:horizontal {
+                background: rgba(0, 212, 255, 0.3);
+                border-radius: 3px;
             }
         """)
 
-        # Main central widget and layout
+        # ── MAIN LAYOUT ───────────────────────────────────────────────────────
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(15)
+        root_layout = QVBoxLayout(central_widget)
+        root_layout.setContentsMargins(30, 30, 30, 20)
+        root_layout.setSpacing(16)
 
-        # ── Left Panel (Controls & Telemetry) ──────────────────────────────────
-        left_panel = QWidget()
-        left_panel.setFixedWidth(380)
+        # ── HEADER ROW ────────────────────────────────────────────────────────
+        header_row = QHBoxLayout()
+
+        header_left = QVBoxLayout()
+        eyebrow = QLabel("MISSION CONTROL  //  TRAJECTORY PLANNING")
+        eyebrow.setObjectName("Eyebrow")
+        self.header = QLabel("HOHMANN TRANSFER")
+        self.header.setObjectName("Header")
+        header_left.addWidget(eyebrow)
+        header_left.addWidget(self.header)
+
+        # AI model status badge in the top-right corner
+        self.ai_badge = QLabel("● AI: LOADING")
+        self.ai_badge.setObjectName("StatusOffline")
+        self.ai_badge.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+
+        header_row.addLayout(header_left)
+        header_row.addStretch()
+        header_row.addWidget(self.ai_badge)
+        root_layout.addLayout(header_row)
+
+        # ── TWO-COLUMN BODY (inputs left | plot right) ────────────────────────
+        body_layout = QHBoxLayout()
+        body_layout.setSpacing(16)
+
+        # ── LEFT COLUMN: Input Panel ──────────────────────────────────────────
+        left_panel = QFrame()
+        left_panel.setObjectName("Panel")
+        left_panel.setFixedWidth(340)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(15)
+        left_layout.setContentsMargins(18, 18, 18, 18)
+        left_layout.setSpacing(12)
 
-        # 1. Mission Configuration Box
-        config_group = QGroupBox("MISSION PARAMETERS")
-        config_layout = QGridLayout()
-        config_layout.setSpacing(12)
+        # Section label
+        inputs_label = QLabel("MISSION PARAMETERS")
+        inputs_label.setObjectName("SectionLabel")
+        left_layout.addWidget(inputs_label)
 
-        # Central Body Selection
-        config_layout.addWidget(QLabel("Central Body:"), 0, 0)
-        self.body_combo = QComboBox()
-        self.body_combo.addItems(["Earth", "Moon", "Mars"])
-        self.body_combo.currentTextChanged.connect(self._on_body_changed)
-        config_layout.addWidget(self.body_combo, 0, 1)
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        grid.setColumnStretch(1, 1)
 
-        # Maneuver Type Selection
-        config_layout.addWidget(QLabel("Maneuver Type:"), 1, 0)
-        self.type_combo = QComboBox()
-        self.type_combo.addItems([
+        row = 0
+
+        # Central Body selector — changes μ and radius for the physics engine
+        grid.addWidget(self._field_label("Central Body:"), row, 0)
+        self.body_box = QComboBox()
+        self.body_box.addItems(list(BODY_PARAMS.keys()))  # Earth, Moon, Mars
+        self.body_box.setToolTip(
+            "Changes the gravitational parameter (μ) and radius used in all calculations.\n"
+            "Earth = 3.986×10¹⁴ m³/s²   Moon = 4.905×10¹² m³/s²   Mars = 4.283×10¹³ m³/s²"
+        )
+        grid.addWidget(self.body_box, row, 1)
+        row += 1
+
+        # Parking Orbit input
+        grid.addWidget(self._field_label("Parking Orbit (h₁, km):"), row, 0)
+        self.input_r1 = QLineEdit("300")
+        self.input_r1.setToolTip(
+            "Altitude above the surface in km.\n"
+            "Earth LEO safe floor: 200 km (below this, drag decays orbit in days).\n"
+            "ISS orbits at ~420 km. Hubble at ~540 km."
+        )
+        grid.addWidget(self.input_r1, row, 1)
+        row += 1
+
+        # Target Orbit row (label + input + preset combo)
+        self.label_r2 = self._field_label("Target Orbit (h₂, km):")
+        grid.addWidget(self.label_r2, row, 0)
+
+        target_col = QHBoxLayout()
+        target_col.setSpacing(4)
+        self.input_r2 = QLineEdit("35786")
+        self.input_r2.setToolTip(
+            "Altitude of the destination orbit in km.\n"
+            "GEO = 35,786 km (satellites appear stationary over one point on Earth).\n"
+            "GPS orbits at 20,200 km. Lunar transfer apogee ≈ 384,400 km."
+        )
+        self.preset_box = QComboBox()
+        self.preset_box.addItems(list(TARGET_PRESETS.keys()))
+        self.preset_box.setToolTip("Quick-fill the target altitude with a standard reference orbit.")
+        self.preset_box.setFixedWidth(38)  # Narrow — acts as a dropdown trigger
+        self.preset_box.setStyleSheet("QComboBox { padding: 7px 2px; font-size: 10px; }")
+        target_col.addWidget(self.input_r2)
+        target_col.addWidget(self.preset_box)
+        grid.addLayout(target_col, row, 1)
+        row += 1
+
+        # Dry Mass input
+        grid.addWidget(self._field_label("Dry Mass (m_dry, kg):"), row, 0)
+        self.input_mass = QLineEdit("2000")
+        self.input_mass.setToolTip(
+            "Mass of the spacecraft WITHOUT propellant.\n"
+            "Includes the payload, structure, and avionics — everything but fuel.\n"
+            "Typical GEO comsat: 1,500–3,500 kg dry mass."
+        )
+        grid.addWidget(self.input_mass, row, 1)
+        row += 1
+
+        # Engine / Propellant type selector — drives the Isp value
+        grid.addWidget(self._field_label("Engine Type:"), row, 0)
+        self.engine_box = QComboBox()
+        self.engine_box.addItems(list(ENGINE_PRESETS.keys()))
+        self.engine_box.setToolTip(
+            "Selects the propulsion system and its specific impulse (Isp).\n"
+            "Higher Isp = more Δv per kg of fuel. Ion drives are very efficient but\n"
+            "provide tiny thrust — they take months to manoeuvre instead of hours."
+        )
+        grid.addWidget(self.engine_box, row, 1)
+        row += 1
+
+        # Maneuver type selector
+        grid.addWidget(self._field_label("Maneuver Profile:"), row, 0)
+        self.maneuver_box = QComboBox()
+        self.maneuver_box.addItems([
             "Hohmann Transfer",
             "Bi-Elliptic Transfer",
             "Phasing Orbit"
         ])
-        self.type_combo.currentTextChanged.connect(self._toggle_inputs)
-        config_layout.addWidget(self.type_combo, 1, 1)
+        self.maneuver_box.setToolTip(
+            "Hohmann: 2-burn, most fuel-efficient for moderate orbit changes.\n"
+            "Bi-Elliptic: 3-burn, more efficient when target is >12× initial radius.\n"
+            "Phasing: 2-burn, catches up to or falls behind a target in the same orbit."
+        )
+        grid.addWidget(self.maneuver_box, row, 1)
+        row += 1
 
-        # Parking Orbit Altitude
-        config_layout.addWidget(QLabel("Parking Altitude (km):"), 2, 0)
-        self.alt1_input = QLineEdit("300")
-        config_layout.addWidget(self.alt1_input, 2, 1)
+        # ── Dynamic fields (shown/hidden by maneuver type) ─────────────────────
 
-        # Target Orbit Altitude
-        self.alt2_label = QLabel("Target Altitude (km):")
-        config_layout.addWidget(self.alt2_label, 3, 0)
-        self.alt2_input = QLineEdit("35786")
-        config_layout.addWidget(self.alt2_input, 3, 1)
+        # Bi-Elliptic only: deep-space intermediate apogee
+        self.label_rb = self._field_label("Deep-Space Apogee (r_b, km):")
+        self.input_rb = QLineEdit("100000")
+        self.input_rb.setToolTip(
+            "The intermediate apogee for the Bi-Elliptic maneuver.\n"
+            "MUST be larger than both parking and target orbits.\n"
+            "Higher rb → less fuel used (but much longer flight time)."
+        )
+        grid.addWidget(self.label_rb, row, 0)
+        grid.addWidget(self.input_rb, row, 1)
+        self.label_rb.hide()
+        self.input_rb.hide()
+        row += 1
 
-        # Bi-Elliptic Intermediate Altitude (Hidden by default)
-        self.rb_label = QLabel("Intermediate Alt. (km):")
-        config_layout.addWidget(self.rb_label, 4, 0)
-        self.rb_input = QLineEdit("100000")
-        config_layout.addWidget(self.rb_input, 4, 1)
+        # Phasing only: phase angle
+        self.label_phase = self._field_label("Phase Angle (degrees):")
+        self.input_phase = QLineEdit("45")
+        self.input_phase.setToolTip(
+            "How far ahead the target spacecraft is in the same orbit.\n"
+            "0° = same position (no maneuver needed). 180° = directly opposite.\n"
+            "ISS rendezvous approaches use phase angles of 2–10° in the final burn."
+        )
+        grid.addWidget(self.label_phase, row, 0)
+        grid.addWidget(self.input_phase, row, 1)
+        self.label_phase.hide()
+        self.input_phase.hide()
+        row += 1
 
-        # Phasing Angle (Hidden by default)
-        self.angle_label = QLabel("Catch-up Angle (deg):")
-        config_layout.addWidget(self.angle_label, 5, 0)
-        self.angle_input = QLineEdit("30")
-        config_layout.addWidget(self.angle_input, 5, 1)
+        # ── Inclination change option ──────────────────────────────────────────
+        grid.addWidget(self._field_label("Inclination Change (°):"), row, 0)
+        self.input_incl = QLineEdit("0")
+        self.input_incl.setToolTip(
+            "Add a plane-change maneuver on top of the orbit raise.\n"
+            "Very expensive! A 28° plane change at LEO costs ~1,500 m/s.\n"
+            "Set to 0 for a pure coplanar transfer."
+        )
+        grid.addWidget(self.input_incl, row, 1)
+        row += 1
 
-        config_group.setLayout(config_layout)
-        left_layout.addWidget(config_group)
+        left_layout.addLayout(grid)
 
-        # Calculate Button
-        self.calc_btn = QPushButton("EXECUTE TRAJECTORY CALCULATION")
-        self.calc_btn.setObjectName("calcButton")
-        self.calc_btn.clicked.connect(self.calculate_maneuver)
-        left_layout.addWidget(self.calc_btn)
+        # Animation speed slider
+        speed_section = QLabel("SIMULATION SPEED")
+        speed_section.setObjectName("SectionLabel")
+        left_layout.addWidget(speed_section)
 
-        # 2. Results / Telemetry Box
-        results_group = QGroupBox("COMPUTED TELEMETRY")
-        results_layout = QGridLayout()
-        results_layout.setSpacing(10)
+        self.speed_slider = QSlider(Qt.Orientation.Horizontal)
+        self.speed_slider.setMinimum(1)
+        self.speed_slider.setMaximum(100)
+        self.speed_slider.setValue(50)
+        self.speed_slider.setToolTip(
+            "Controls how fast the animation plays.\n"
+            "Low = slow (good for studying the trajectory).\n"
+            "High = fast (good for quick iteration)."
+        )
+        left_layout.addWidget(self.speed_slider)
 
-        # Styles for telemetry labels (monospace numbers, right aligned)
-        val_style = "color: #00d4ff; font-family: 'DM Mono', Courier; font-weight: bold;"
-        
-        self.res_dv1 = QLabel("--")
-        self.res_dv1.setStyleSheet(val_style)
-        self.res_dv1.setAlignment(Qt.AlignmentFlag.AlignRight)
-        
-        self.res_dv2 = QLabel("--")
-        self.res_dv2.setStyleSheet(val_style)
-        self.res_dv2.setAlignment(Qt.AlignmentFlag.AlignRight)
-        
-        self.res_dv_total = QLabel("--")
-        self.res_dv_total.setStyleSheet("color: #ff6b35; font-family: 'DM Mono'; font-weight: bold; font-size: 14px;")
-        self.res_dv_total.setAlignment(Qt.AlignmentFlag.AlignRight)
-        
-        self.res_tof = QLabel("--")
-        self.res_tof.setStyleSheet(val_style)
-        self.res_tof.setAlignment(Qt.AlignmentFlag.AlignRight)
-
-        results_layout.addWidget(QLabel("ΔV₁ (Burn 1):"), 0, 0)
-        results_layout.addWidget(self.res_dv1, 0, 1)
-        
-        results_layout.addWidget(QLabel("ΔV₂ (Burn 2):"), 1, 0)
-        results_layout.addWidget(self.res_dv2, 1, 1)
-        
-        results_layout.addWidget(QLabel("Total ΔV Required:"), 2, 0)
-        results_layout.addWidget(self.res_dv_total, 2, 1)
-        
-        results_layout.addWidget(QLabel("Time of Flight (TOF):"), 3, 0)
-        results_layout.addWidget(self.res_tof, 3, 1)
-
-        results_group.setLayout(results_layout)
-        left_layout.addWidget(results_group)
-
-        # Status Bar
-        self.status_label = QLabel("SYSTEM IDLE. AWAITING COMMAND.")
-        self.status_label.setStyleSheet("color: #5a6a80; font-family: 'DM Mono', Courier; font-size: 11px;")
-        left_layout.addWidget(self.status_label)
-
-        # Push everything to the top
         left_layout.addStretch()
 
-        # ── Right Panel (Visualizer) ───────────────────────────────────────────
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10)
+        # Action buttons
+        btn_row = QHBoxLayout()
+        self.calc_button = QPushButton("INITIATE CALCULATION")
+        self.calc_button.setObjectName("CalcButton")
+        self.reset_button = QPushButton("RESET")
+        self.reset_button.setObjectName("ResetButton")
+        btn_row.addWidget(self.calc_button, 3)
+        btn_row.addWidget(self.reset_button, 1)
+        left_layout.addLayout(btn_row)
 
-        # Plotter Canvas
+        body_layout.addWidget(left_panel)
+
+        # ── RIGHT COLUMN: Plot ─────────────────────────────────────────────────
         self.plotter = OrbitPlotter(self)
-        
-        # Add canvas to a container with a border
-        plot_container = QWidget()
-        plot_container.setStyleSheet("""
-            QWidget {
-                background-color: #080d14;
-                border: 1px solid #2a3a50;
-                border-radius: 6px;
-            }
-        """)
-        pc_layout = QVBoxLayout(plot_container)
-        pc_layout.setContentsMargins(2, 2, 2, 2)
-        pc_layout.addWidget(self.plotter)
-        
-        right_layout.addWidget(plot_container)
+        self.plotter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        body_layout.addWidget(self.plotter, 1)
 
-        # Animation Controls
-        anim_layout = QHBoxLayout()
-        
-        self.anim_btn = QPushButton("PLAY SIMULATION")
-        self.anim_btn.setFixedWidth(180)
-        self.anim_btn.clicked.connect(self.toggle_animation)
-        anim_layout.addWidget(self.anim_btn)
-        
-        self.anim_progress = QProgressBar()
-        self.anim_progress.setTextVisible(False)
-        self.anim_progress.setFixedHeight(8)
-        self.anim_progress.setStyleSheet("""
-            QProgressBar {
-                background-color: #151f2e;
-                border: 1px solid #2a3a50;
-                border-radius: 4px;
-            }
-            QProgressBar::chunk {
-                background-color: #00d4ff;
-                border-radius: 3px;
-            }
-        """)
-        anim_layout.addWidget(self.anim_progress)
-        
-        right_layout.addLayout(anim_layout)
+        root_layout.addLayout(body_layout, 1)
 
-        # Add left and right panels to main layout
-        main_layout.addWidget(left_panel)
-        main_layout.addWidget(right_panel, stretch=1) # Right panel takes remaining space
+        # ── RESULTS PANEL (below the two columns) ─────────────────────────────
+        results_panel = QFrame()
+        results_panel.setObjectName("ResultPanel")
+        results_row = QHBoxLayout(results_panel)
+        results_row.setContentsMargins(16, 12, 16, 12)
+        results_row.setSpacing(12)
 
-        # ── Animation Timer Setup ──────────────────────────────────────────────
-        self.anim_timer = QTimer()
-        self.anim_timer.timeout.connect(self.animation_step)
-        self.anim_frame = 0
-        self.is_animating = False
+        # We build 6 result "cards" in a row.
+        # Each card shows a title label and a value label.
+        self.card_dv       = self._result_card("DELTA-V",          "— m/s",     "CardValue")
+        self.card_time     = self._result_card("TRANSFER TIME",     "—",         "CardValue")
+        self.card_phys     = self._result_card("PROPELLANT (PHYS)", "— kg",      "CardValue")
+        self.card_ai       = self._result_card("PROPELLANT (AI)",   "— kg",      "CardValueAlt")
+        self.card_period1  = self._result_card("INITIAL PERIOD",    "—",         "CardValue")
+        self.card_massfrac = self._result_card("MASS FRACTION",     "—",         "CardValue")
 
-        # Set initial UI state
-        self._toggle_inputs()
-        
-    def _on_body_changed(self, body_name):
-        """Update defaults when central body changes to prevent absurd values."""
-        if body_name == "Earth":
-            self.alt1_input.setText("300")
-            self.alt2_input.setText("35786")
-        elif body_name == "Moon":
-            self.alt1_input.setText("50")
-            self.alt2_input.setText("2000")
-        elif body_name == "Mars":
-            self.alt1_input.setText("200")
-            self.alt2_input.setText("17000")
-            
-        self.status_label.setText(f"CENTRAL BODY RE-TARGETED: {body_name.upper()}")
+        for card in [self.card_dv, self.card_time, self.card_phys,
+                     self.card_ai, self.card_period1, self.card_massfrac]:
+            results_row.addWidget(card)
 
-    def _toggle_inputs(self):
-        """Show or hide input fields based on the selected maneuver type."""
-        m_type = self.type_combo.currentText()
-        
-        # Reset visibility
-        self.alt2_label.setVisible(True)
-        self.alt2_input.setVisible(True)
-        self.rb_label.setVisible(False)
-        self.rb_input.setVisible(False)
-        self.angle_label.setVisible(False)
-        self.angle_input.setVisible(False)
-        
-        if m_type == "Bi-Elliptic Transfer":
-            self.rb_label.setVisible(True)
-            self.rb_input.setVisible(True)
-            
-        elif m_type == "Phasing Orbit":
-            self.alt2_label.setVisible(False)
-            self.alt2_input.setVisible(False)
-            self.angle_label.setVisible(True)
-            self.angle_input.setVisible(True)
+        root_layout.addWidget(results_panel)
 
-    def calculate_maneuver(self):
-        """
-        Gathers inputs, calls the appropriate physics engine, updates telemetry,
-        and redraws the orbital diagram.
-        """
-        # Stop animation if running
-        if self.is_animating:
-            self.toggle_animation()
+        # ── STATUS BAR ────────────────────────────────────────────────────────
+        self.status_label = QLabel("SYSTEM STANDBY.  CONFIGURE MISSION PARAMETERS AND PRESS INITIATE.")
+        self.status_label.setStyleSheet(
+            "color: #5a6a80; font-family: 'DM Mono', Courier; font-size: 11px;"
+        )
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root_layout.addWidget(self.status_label)
 
+        # ── ANIMATION ENGINE ──────────────────────────────────────────────────
+        self.animation_timer = QTimer(self)
+        self.animation_timer.timeout.connect(self.animation_step)
+        self.current_frame = 0
+
+        # ── SIGNALS & SLOTS ───────────────────────────────────────────────────
+        # Qt's signal/slot mechanism: when a widget changes, it emits a 'signal'
+        # that triggers a connected 'slot' (a method). This keeps UI and logic
+        # cleanly separated.
+        self.calc_button.clicked.connect(self.calculate_mission)
+        self.reset_button.clicked.connect(self.reset_dashboard)
+        self.maneuver_box.currentTextChanged.connect(self.update_ui_for_maneuver)
+        self.preset_box.currentTextChanged.connect(self.apply_preset)
+
+        # ── LOAD AI SURROGATE MODEL ───────────────────────────────────────────
+        # The model files are in ml/ relative to the project root.
+        # We find the project root by going one directory up from this file.
         try:
-            # Parse common inputs
-            body = self.body_combo.currentText()
-            alt1 = float(self.alt1_input.text())
-            m_type = self.type_combo.currentText()
+            current_folder = os.path.dirname(__file__)
+            project_root   = os.path.abspath(os.path.join(current_folder, '..'))
+            model_path     = os.path.join(project_root, 'ml', 'surrogate_model.pkl')
+            columns_path   = os.path.join(project_root, 'ml', 'model_columns.pkl')
 
-            # Input Validation
-            if alt1 <= 0:
-                self._set_error("PARKING ALTITUDE MUST BE POSITIVE")
+            self.ai_model      = joblib.load(model_path)
+            self.model_columns = joblib.load(columns_path)
+            self.ai_status     = "ONLINE"
+            self.ai_badge.setText("● AI MODEL: ONLINE")
+            self.ai_badge.setObjectName("StatusOnline")
+        except FileNotFoundError:
+            # If the model hasn't been trained yet, the dashboard still works
+            # on pure physics. Run ml/train_model.py to create the model.
+            self.ai_model  = None
+            self.ai_status = "OFFLINE"
+            self.ai_badge.setText("● AI MODEL: OFFLINE")
+            self.ai_badge.setObjectName("StatusOffline")
+
+    # ── HELPER: Create a labelled input field label ───────────────────────────
+    def _field_label(self, text):
+        """Creates a consistently-styled input field label."""
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            "color: #8899aa; font-family: 'DM Mono', Courier; font-size: 11px;"
+        )
+        return lbl
+
+    # ── HELPER: Create a result display card ─────────────────────────────────
+    def _result_card(self, title_text, value_text, value_style):
+        """
+        Builds a small card widget with a category title and a data value.
+        Returns the card QFrame so it can be added to the layout.
+        The value label is stored on the card as card.value_label for updates.
+        """
+        card = QFrame()
+        card.setObjectName("ResultCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 8, 10, 8)
+        card_layout.setSpacing(4)
+
+        title = QLabel(title_text)
+        title.setObjectName("CardTitle")
+        card_layout.addWidget(title)
+
+        value = QLabel(value_text)
+        value.setObjectName(value_style)
+        card_layout.addWidget(value)
+
+        card.value_label = value   # Easy reference for updates
+        return card
+
+    # ── SLOT: Apply target orbit preset ───────────────────────────────────────
+    def apply_preset(self, preset_name):
+        """Fills in the target orbit field when the user picks a preset."""
+        altitude = TARGET_PRESETS.get(preset_name)
+        if altitude is not None:
+            self.input_r2.setText(str(altitude))
+
+    # ── SLOT: Update visible fields based on selected maneuver ────────────────
+    def update_ui_for_maneuver(self, text):
+        """
+        Shows and hides input fields depending on which maneuver is selected.
+        Each maneuver needs different parameters from the user.
+        """
+        self.header.setText(text.upper())
+
+        # Start by showing the standard fields
+        self.label_r2.show()
+        self.input_r2.show()
+        self.preset_box.show()
+        self.label_rb.hide()
+        self.input_rb.hide()
+        self.label_phase.hide()
+        self.input_phase.hide()
+
+        if text == "Bi-Elliptic Transfer":
+            # Bi-Elliptic needs the deep-space apogee in addition to r2
+            self.label_rb.show()
+            self.input_rb.show()
+
+        elif text == "Phasing Orbit":
+            # Phasing stays in the same orbit — no target orbit needed
+            self.label_r2.hide()
+            self.input_r2.hide()
+            self.preset_box.hide()
+            self.label_phase.show()
+            self.input_phase.show()
+
+    # ── SLOT: Reset to default state ──────────────────────────────────────────
+    def reset_dashboard(self):
+        """Clears all results and resets inputs to Earth LEO → GEO defaults."""
+        self.input_r1.setText("300")
+        self.input_r2.setText("35786")
+        self.input_mass.setText("2000")
+        self.input_rb.setText("100000")
+        self.input_phase.setText("45")
+        self.input_incl.setText("0")
+        self.body_box.setCurrentText("Earth")
+        self.engine_box.setCurrentIndex(0)
+        self.maneuver_box.setCurrentIndex(0)
+        self.speed_slider.setValue(50)
+        self.preset_box.setCurrentIndex(0)
+
+        # Clear result cards
+        for card, default in [
+            (self.card_dv, "— m/s"),
+            (self.card_time, "—"),
+            (self.card_phys, "— kg"),
+            (self.card_ai, "— kg"),
+            (self.card_period1, "—"),
+            (self.card_massfrac, "—"),
+        ]:
+            card.value_label.setText(default)
+
+        self.status_label.setText(
+            "SYSTEM RESET.  CONFIGURE MISSION PARAMETERS AND PRESS INITIATE."
+        )
+        self.plotter.draw_orbits(300, 35786, body="Earth")
+
+    # ── MAIN CALCULATION SLOT ─────────────────────────────────────────────────
+    def calculate_mission(self):
+        """
+        Runs when the user presses INITIATE CALCULATION.
+
+        Sequence:
+          1. Read and validate all input fields
+          2. Run the physics engine for the selected maneuver
+          3. Apply Tsiolkovsky rocket equation to get propellant mass
+          4. Query the AI surrogate for a parallel prediction
+          5. Update all result cards
+          6. Trigger the orbital visualisation and animation
+        """
+        try:
+            # ── 1. Read inputs ─────────────────────────────────────────────────
+            alt1_km    = float(self.input_r1.text())
+            final_mass = float(self.input_mass.text())
+            incl_deg   = float(self.input_incl.text())
+
+            # Look up selected body parameters (μ and radius)
+            body_name  = self.body_box.currentText()
+            body       = BODY_PARAMS[body_name]
+            mu         = body["mu"]
+            r_body_km  = body["radius_km"]
+            min_alt    = body["min_alt_km"]
+            max_alt    = body["max_alt_km"]
+
+            # Look up the engine's Isp (specific impulse) from the preset dict
+            engine_name = self.engine_box.currentText()
+            isp         = ENGINE_PRESETS[engine_name]["isp"]
+
+            # Convert altitudes to absolute radii (from body centre, in metres)
+            r1 = (alt1_km * 1000) + (r_body_km * 1000)
+
+            maneuver_type = self.maneuver_box.currentText()
+
+            # ── 2. Input validation ────────────────────────────────────────────
+            if alt1_km < min_alt or alt1_km > max_alt:
+                self._set_error(
+                    f"PARKING ORBIT OUT OF RANGE FOR {body_name.upper()} "
+                    f"({min_alt}–{max_alt:,} km)."
+                )
                 return
 
-            if m_type == "Hohmann Transfer":
-                alt2 = float(self.alt2_input.text())
-                if alt2 <= alt1:
-                    self._set_error("TARGET ALTITUDE MUST EXCEED PARKING ALTITUDE")
+            if maneuver_type != "Phasing Orbit":
+                alt2_km = float(self.input_r2.text())
+                r2 = (alt2_km * 1000) + (r_body_km * 1000)
+                if alt2_km < min_alt or alt2_km > max_alt:
+                    self._set_error(
+                        f"TARGET ORBIT OUT OF RANGE FOR {body_name.upper()} "
+                        f"({min_alt}–{max_alt:,} km)."
+                    )
                     return
-                    
-                dv1, dv2, tof = hohmann_transfer(alt1, alt2, body)
-                
-                self.res_dv1.setText(f"{dv1:.3f} km/s")
-                self.res_dv2.setText(f"{dv2:.3f} km/s")
-                self.res_dv_total.setText(f"{(dv1 + dv2):.3f} km/s")
-                self.res_tof.setText(self._format_time(tof))
-                
-                self.plotter.draw_orbits(alt1, alt2, m_type, body=body)
+            else:
+                alt2_km = alt1_km   # Phasing stays at r1
+                r2 = r1
 
-            elif m_type == "Bi-Elliptic Transfer":
-                alt2 = float(self.alt2_input.text())
-                rb = float(self.rb_input.text())
-                
-                if alt2 <= alt1:
-                    self._set_error("TARGET ALTITUDE MUST EXCEED PARKING ALTITUDE")
-                    return
-                if rb <= alt2:
-                    self._set_error("INTERMEDIATE ALTITUDE MUST EXCEED TARGET ALTITUDE")
-                    return
-                    
-                dv1, dv2, dv3, tof = bi_elliptic_transfer(alt1, alt2, rb, body)
-                
-                self.res_dv1.setText(f"{dv1:.3f} km/s")
-                # Bi-elliptic has 3 burns, combine 2 and 3 for display simplicity
-                self.res_dv2.setText(f"{(dv2 + dv3):.3f} km/s (B2+B3)")
-                self.res_dv_total.setText(f"{(dv1 + dv2 + dv3):.3f} km/s")
-                self.res_tof.setText(self._format_time(tof))
-                
-                self.plotter.draw_orbits(alt1, alt2, m_type, rb_km=rb, body=body)
+            # ── 3. Route to the correct physics function ───────────────────────
+            rb_km = 0.0   # Default for maneuvers that don't use rb
+            phase_angle = 0.0
 
-            elif m_type == "Phasing Orbit":
-                catch_up_deg = float(self.angle_input.text())
-                
-                if not (0 < catch_up_deg < 360):
-                    self._set_error("CATCH-UP ANGLE MUST BE BETWEEN 0 AND 360")
-                    return
-                    
-                dv_entry, dv_exit, tof = phasing_orbit(alt1, catch_up_deg, body)
-                
-                self.res_dv1.setText(f"{dv_entry:.3f} km/s")
-                self.res_dv2.setText(f"{dv_exit:.3f} km/s")
-                self.res_dv_total.setText(f"{(dv_entry + dv_exit):.3f} km/s")
-                self.res_tof.setText(self._format_time(tof))
-                
-                self.plotter.draw_orbits(alt1, alt1, m_type, body=body)
+            if maneuver_type == "Hohmann Transfer":
+                delta_v = hohmann_transfer(mu, r1, r2)
+                transfer_time_s = hohmann_transfer_time(mu, r1, r2)
 
-            # Success state
-            self.status_label.setText("TRAJECTORY COMPUTED SUCCESSFULLY.")
-            self.status_label.setStyleSheet("color: #00d4ff; font-family: 'DM Mono', Courier; font-size: 11px;")
-            
-            # Reset animation state ready for play
-            self.anim_frame = 0
-            self.anim_progress.setValue(0)
-            self.anim_btn.setText("PLAY SIMULATION")
+            elif maneuver_type == "Bi-Elliptic Transfer":
+                rb_km = float(self.input_rb.text())
+                rb = (rb_km * 1000) + (r_body_km * 1000)
+
+                # rb must be outside both orbits for the geometry to work
+                if rb <= r1 or rb <= r2:
+                    self._set_error(
+                        "DEEP-SPACE APOGEE (r_b) MUST BE LARGER THAN BOTH ORBITS."
+                    )
+                    return
+
+                delta_v = bi_elliptic_transfer(mu, r1, r2, rb)
+                transfer_time_s = bi_elliptic_transfer_time(mu, r1, r2, rb)
+
+            elif maneuver_type == "Phasing Orbit":
+                phase_angle = float(self.input_phase.text())
+                if not (0 < phase_angle <= 180):
+                    self._set_error("PHASE ANGLE MUST BE BETWEEN 1° AND 180°.")
+                    return
+                delta_v = phasing_maneuver(mu, r1, phase_angle)
+                # Phasing time = one phasing orbit period (approximately)
+                T_initial = orbital_period(mu, r1)
+                transfer_time_s = T_initial - (phase_angle / 360.0) * T_initial
+
+            # ── Optional inclination change Δv added on top ───────────────────
+            # Plane changes are done most efficiently at the transfer point
+            # where velocity is lowest (apogee), but here we add it as a simple
+            # budget addition — standard practice in preliminary mission design.
+            if incl_deg != 0:
+                # Use the average of initial and final circular velocities as
+                # a rough estimate for where the plane change happens
+                v_avg = (circular_velocity(mu, r1) + circular_velocity(mu, r2)) / 2
+                delta_v += plane_change_dv(v_avg, incl_deg)
+
+            # ── 4. Propellant mass (Tsiolkovsky Rocket Equation) ──────────────
+            wet_mass  = calculate_initial_mass(delta_v, isp, final_mass)
+            propellant = wet_mass - final_mass
+
+            # Mass fraction: what percentage of the vehicle's total mass is fuel?
+            mf_pct = mass_fraction(propellant, wet_mass)
+
+            # Orbital periods of the initial and final orbits (Kepler's 3rd Law)
+            period1_s = orbital_period(mu, r1)
+            period2_s = orbital_period(mu, r2)
+
+            # ── 5. AI Surrogate Prediction ────────────────────────────────────
+            ai_text = "OFFLINE"
+            if self.ai_model is not None:
+                try:
+                    # Build the input row exactly as the model was trained on.
+                    # The one-hot encoding must match what generate_data.py produced:
+                    # Maneuver_Type_Bi-Elliptic, Maneuver_Type_Hohmann, Maneuver_Type_Phasing
+                    input_data = {
+                        'R1_km':                     [alt1_km],
+                        'R2_km':                     [alt2_km if maneuver_type != "Phasing Orbit" else 0.0],
+                        'Rb_km':                     [rb_km],
+                        'Phase_Angle':               [phase_angle],
+                        'Payload_kg':                [final_mass],
+                        'Maneuver_Type_Bi-Elliptic': [1 if maneuver_type == "Bi-Elliptic Transfer" else 0],
+                        'Maneuver_Type_Hohmann':     [1 if maneuver_type == "Hohmann Transfer" else 0],
+                        'Maneuver_Type_Phasing':     [1 if maneuver_type == "Phasing Orbit" else 0],
+                    }
+                    input_df = pd.DataFrame(input_data)
+                    # Align column order to what the model expects
+                    input_df = input_df.reindex(columns=self.model_columns, fill_value=0)
+
+                    ai_prediction = self.ai_model.predict(input_df)[0]
+                    ai_prediction = max(0.0, ai_prediction)   # Physics: fuel can't be negative
+                    ai_text = f"{ai_prediction:,.1f} kg"
+                except Exception:
+                    ai_text = "PREDICT ERR"
+
+            # ── 6. Update result cards ─────────────────────────────────────────
+            self.card_dv.value_label.setText(f"{delta_v:,.1f} m/s")
+            self.card_time.value_label.setText(self._format_time(transfer_time_s))
+            self.card_phys.value_label.setText(f"{propellant:,.1f} kg")
+            self.card_ai.value_label.setText(ai_text)
+            self.card_period1.value_label.setText(self._format_time(period1_s))
+            self.card_massfrac.value_label.setText(f"{mf_pct:.1f} %")
+
+            # Build a concise status message for the bottom bar
+            p2_str = self._format_time(period2_s)
+            self.status_label.setText(
+                f"MISSION SUCCESS  |  {body_name}  |  Engine: {engine_name}  |  "
+                f"Target Orbit Period: {p2_str}  |  "
+                f"Payload Fraction: {payload_fraction(final_mass, wet_mass):.1f}%  |  "
+                f"Isp: {isp} s"
+            )
+            self.status_label.setStyleSheet(
+                "color: #00d4ff; font-family: 'DM Mono', Courier; font-size: 11px;"
+            )
+
+            # ── 7. Draw orbits and start animation ─────────────────────────────
+            if maneuver_type == "Bi-Elliptic Transfer":
+                self.plotter.draw_orbits(
+                    alt1_km, alt2_km, maneuver=maneuver_type,
+                    rb_km=rb_km, body=body_name
+                )
+            elif maneuver_type == "Phasing Orbit":
+                self.plotter.draw_orbits(
+                    alt1_km, alt1_km, maneuver=maneuver_type, body=body_name
+                )
+            else:
+                self.plotter.draw_orbits(
+                    alt1_km, alt2_km, maneuver=maneuver_type, body=body_name
+                )
+
+            # Restart animation from the beginning
+            self.current_frame = 0
+            delay_ms = max(10, int(1000 / self.speed_slider.value()))
+            self.animation_timer.start(delay_ms)
 
         except ValueError:
-            self._set_error("INPUT ERROR: NON-NUMERIC CHARACTERS DETECTED")
-        except Exception as e:
-            self._set_error(f"SYSTEM FAULT: {str(e).upper()}")
+            # If the user typed a letter instead of a number, catch it cleanly
+            self._set_error("INVALID INPUT — NUMERIC VALUES ONLY.")
 
-    # ── ANIMATION HANDLING ─────────────────────────────────────────────────────
-    def toggle_animation(self):
-        """Starts or stops the rocket animation across the transfer trajectory."""
-        if len(self.plotter.flight_path_x) == 0:
-            self._set_error("NO TRAJECTORY CALCULATED. EXECUTE CALCULATION FIRST.")
-            return
-
-        if self.is_animating:
-            self.anim_timer.stop()
-            self.anim_btn.setText("RESUME SIMULATION")
-            self.is_animating = False
-        else:
-            # If we reached the end, reset to the start
-            if self.anim_frame >= len(self.plotter.flight_path_x) - 1:
-                self.anim_frame = 0
-            
-            self.anim_timer.start(40)  # 40ms = 25 frames per second
-            self.anim_btn.setText("PAUSE SIMULATION")
-            self.is_animating = True
-
+    # ── SLOT: Single animation frame tick ─────────────────────────────────────
     def animation_step(self):
-        """Called every 40ms by QTimer to move the rocket one frame forward."""
-        path_x = self.plotter.flight_path_x
-        path_y = self.plotter.flight_path_y
-        
-        if self.anim_frame >= len(path_x) - 1:
-            # Animation finished
-            self.anim_timer.stop()
-            self.is_animating = False
-            self.anim_btn.setText("REPLAY SIMULATION")
-            self.anim_progress.setValue(100)
-            
-            # Hide velocity vector
-            self.plotter.update_rocket_position(
-                path_x[-1], path_y[-1], 0, 0
-            )
+        """
+        Fires every few milliseconds (controlled by speed slider) to move the
+        spacecraft one step along the pre-computed flight path.
+        """
+        if len(self.plotter.flight_path_x) == 0:
+            self.animation_timer.stop()
             return
 
-        # Current position
-        x = path_x[self.anim_frame]
-        y = path_y[self.anim_frame]
-        
-        # Calculate velocity vector direction (tangent to path)
-        # We look ahead one frame to find the direction of travel
-        next_x = path_x[self.anim_frame + 1]
-        next_y = path_y[self.anim_frame + 1]
-        dx = next_x - x
-        dy = next_y - y
+        x = self.plotter.flight_path_x[self.current_frame]
+        y = self.plotter.flight_path_y[self.current_frame]
 
-        # Determine if we are accelerating (prograde) or decelerating (retrograde)
-        # Simplification for visuals: first frame is always prograde burn, 
-        # last frame is always prograde burn (circularising) for Hohmann.
-        v_type = "Prograde"
-        
-        # Tell the plotter to redraw the rocket and vector at the new position
-        self.plotter.update_rocket_position(x, y, dx, dy, v_type)
-        
-        # Update progress bar
-        progress = int((self.anim_frame / len(path_x)) * 100)
-        self.anim_progress.setValue(progress)
-        
-        self.anim_frame += 1
+        # Compute the instantaneous velocity direction (tangent to the path)
+        # by looking at the next frame's position. This drives the thrust arrow.
+        if self.current_frame < len(self.plotter.flight_path_x) - 1:
+            dx = self.plotter.flight_path_x[self.current_frame + 1] - x
+            dy = self.plotter.flight_path_y[self.current_frame + 1] - y
+        else:
+            dx, dy = 0, 0
 
-    # ── HELPER: Format seconds into readable time ──────────────────────────────
+        self.plotter.update_rocket_position(x, y, dx, dy, "Prograde")
+        self.current_frame += 1
+
+        if self.current_frame >= len(self.plotter.flight_path_x):
+            self.animation_timer.stop()
+            # Hide the thrust arrow on arrival — engines off
+            self.plotter.update_rocket_position(x, y, 0, 0)
+
+    # ── HELPER: Format seconds into a readable time string ────────────────────
     def _format_time(self, seconds):
-        if seconds < 3600:
+        """
+        Converts a duration in seconds to a human-readable string.
+        Uses minutes for short transfers (< 2 hours), hours for medium,
+        and days for long ones — matching how ESA/NASA present transfer windows.
+        """
+        if seconds < 120:
+            return f"{seconds:.0f} s"
+        elif seconds < 7200:
             return f"{seconds / 60:.1f} min"
         elif seconds < 172800:
             return f"{seconds / 3600:.2f} hr"
@@ -481,7 +870,6 @@ def run_app():
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
-    
     app = QApplication(sys.argv)
     window = OrbitalDashboard()
     window.show()
